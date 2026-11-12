@@ -233,3 +233,11 @@ def test_rule_display_name_does_not_overwrite_existing(fresh):
     add_tx("b", merchant="Joes BBQ", detail="FOOD_AND_DRINK_FAST_FOOD")
     rules.categorize(["b"])
     assert tx("b")["display_name"] == "Rule Name"
+
+
+def test_falsy_non_object_rule_json_is_skipped(fresh):
+    for bad in ("[]", "null", "0", "false", '""'):
+        db.run("INSERT INTO rules (name, conditions, actions) VALUES (?, ?, ?)", (f"bad {bad}", bad, '{"cat_id": "FOOD_AND_DRINK_COFFEE"}'))
+    add_tx("a", detail="FOOD_AND_DRINK_GROCERIES")
+    rules.categorize()
+    assert tx("a")["cat_id"] == "FOOD_AND_DRINK_GROCERIES"

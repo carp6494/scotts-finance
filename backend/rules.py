@@ -54,8 +54,8 @@ def _load_rules():
     out = []
     for r in db.q("SELECT * FROM rules WHERE enabled=1 ORDER BY priority, id"):
         try:
-            cond = json.loads(r["conditions"] or "{}") or {}
-            act = json.loads(r["actions"] or "{}") or {}
+            cond = json.loads(r["conditions"] or "{}")
+            act = json.loads(r["actions"] or "{}")
         except (json.JSONDecodeError, TypeError):
             log.warning("rule %s (%s) has bad JSON and was skipped", r["id"], r["name"])
             continue
