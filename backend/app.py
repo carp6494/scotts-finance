@@ -634,9 +634,10 @@ def summary():
     invest = sum(a["current"] or 0 for a in rows if a["type"] == "investment")
     prop = sum(a["current"] or 0 for a in rows if a["type"] == "property")
     month = date.today().strftime("%Y-%m")
-    m = db.one("""SELECT COALESCE(SUM(CASE WHEN amount>0 AND COALESCE(category,'') NOT IN ('TRANSFER_OUT','LOAN_PAYMENTS') THEN amount END),0) AS spent,
-                         COALESCE(SUM(CASE WHEN amount<0 AND COALESCE(category,'') NOT IN ('TRANSFER_IN') THEN -amount END),0) AS income
-                  FROM transactions WHERE substr(date,1,7)=? AND pending=0""", (month,))
+    m = db.one("""SELECT COALESCE(SUM(CASE WHEN t.amount>0 AND COALESCE(c.type,'expense')='expense' THEN t.amount END),0) AS spent,
+                         COALESCE(SUM(CASE WHEN t.amount<0 AND c.type='income' THEN -t.amount END),0) AS income
+                  FROM transactions t LEFT JOIN categories c ON c.id=t.cat_id
+                  WHERE substr(t.date,1,7)=? AND t.pending=0 AND COALESCE(t.excluded,0)=0 AND COALESCE(t.is_transfer,0)=0""", (month,))
     return {"net_worth": cash + invest + prop - debt, "cash": cash, "debt": debt, "investments": invest,
             "property": prop, "spent_month": m["spent"], "income_month": m["income"],
             "tx_count": db.one("SELECT COUNT(*) AS n FROM transactions")["n"]}
