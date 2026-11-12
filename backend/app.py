@@ -540,8 +540,11 @@ ACT_KEYS = {"cat_id", "display_name", "exclude", "transfer"}
 
 def _clean_rule(conditions: dict, actions: dict, need_actions: bool = True):
     """Drop empty values, check bounds, return (conditions, actions) ready to store."""
-    c = {k: v for k, v in (conditions or {}).items() if k in COND_KEYS and v not in (None, "", False)}
-    a = {k: v for k, v in (actions or {}).items() if k in ACT_KEYS and v not in (None, "", False)}
+    def _keep(v):
+        return v is not None and v is not False and v != ""
+
+    c = {k: v for k, v in (conditions or {}).items() if k in COND_KEYS and _keep(v)}
+    a = {k: v for k, v in (actions or {}).items() if k in ACT_KEYS and _keep(v)}
     for k in ("amount_min", "amount_max"):
         if k in c:
             try:
