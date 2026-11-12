@@ -1,0 +1,18 @@
+.env
+data/
+.venv/
+frontend/node_modules/
+__pycache__/
+backups/
+frontend/dist/
+assets/ticker-logos/
+imports/
+reports/
+attachments/
+*.db
+*.db-wal
+*.db-shm
+.fuse_hidden*
+
+# Session notes that may name Scott's accounts. Local only.
+HANDOFF.md

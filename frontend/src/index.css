@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+:root, [data-theme="dark"] {
+  --bg: #070b14; --card: #0d1424; --hover: #0f1a2e; --active: #13203a;
+  --line: #1e293b; --line2: #16213a; --line3: #334155; --line4: #475569;
+  --text: #e5e7eb; --text2: #cbd5e1; --muted: #94a3b8; --muted2: #64748b;
+  --pos: #4ade80; --warn: #fbbf24; --neg: #f87171; --info: #93c5fd; --orange: #fb923c;
+  --accent: #2563eb; --scrim: rgba(2, 6, 15, .6);
+  color-scheme: dark;
+}
+[data-theme="light"] {
+  --bg: #f4f6fb; --card: #ffffff; --hover: #eef2f8; --active: #e3ecff;
+  --line: #e2e8f0; --line2: #eef1f6; --line3: #cbd5e1; --line4: #94a3b8;
+  --text: #0f172a; --text2: #334155; --muted: #5b6678; --muted2: #6b7586;
+  --pos: #15803d; --warn: #b45309; --neg: #dc2626; --info: #1d4ed8; --orange: #c2410c;
+  --accent: #2563eb; --scrim: rgba(15, 23, 42, .35);
+  color-scheme: light;
+}
+
+html, body { margin: 0; background: var(--bg); color: var(--text); font-family: Inter, system-ui, sans-serif; }
+* { box-sizing: border-box; }
+a { color: var(--info); }
+button { font: inherit; cursor: pointer; }
+.num { font-variant-numeric: tabular-nums; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
+.lift { transition: transform .2s ease, border-color .2s ease; }
+.lift:hover { transform: translateY(-3px); border-color: var(--line4); }
+.press:active { transform: scale(.97); }
+
+/* Odometer: each digit is a 0-9 strip that scrolls into place */
+.odo-row { display: inline-flex; align-items: baseline; line-height: 1.15; }
+.odo { display: inline-block; height: 1.15em; overflow: hidden; vertical-align: bottom; }
+.odo-strip { display: block; will-change: transform; }
+.odo-strip span { display: block; height: 1.15em; line-height: 1.15em; text-align: center; }
+
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+.rise { animation: rise .55s ease both; }
+@keyframes growX { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { animation: spin .8s linear infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
