@@ -517,6 +517,113 @@ def patch_transaction(transaction_id: str, req: TxPatch):
     return row
 
 
+# ---------- rules ----------
+
+class RuleReq(BaseModel):
+    name: str
+    priority: int = 100
+    enabled: bool = True
+    conditions: dict = {}
+    actions: dict = {}
+    created_from: str | None = None
+    apply_past: bool = False
+
+
+class PreviewReq(BaseModel):
+    conditions: dict = {}
+    actions: dict = {}
+
+
+COND_KEYS = {"merchant", "text", "amount_min", "amount_max", "account_id", "day_min", "day_max"}
+ACT_KEYS = {"cat_id", "display_name", "exclude", "transfer"}
+
+
+def _clean_rule(conditions: dict, actions: dict, need_actions: bool = True):
+    """Drop empty values, check bounds, return (conditions, actions) ready to store."""
+    c = {k: v for k, v in (conditions or {}).items() if k in COND_KEYS and v not in (None, "", False)}
+    a = {k: v for k, v in (actions or {}).items() if k in ACT_KEYS and v not in (None, "", False)}
+    for k in ("amount_min", "amount_max"):
+        if k in c:
+            try:
+                c[k] = float(c[k])
+            except (TypeError, ValueError):
+                raise HTTPException(400, f"{k} must be a number")
+    for k in ("day_min", "day_max"):
+        if k in c:
+            try:
+                c[k] = int(c[k])
+            except (TypeError, ValueError):
+                raise HTTPException(400, f"{k} must be a whole number")
+            if not 1 <= c[k] <= 31:
+                raise HTTPException(400, "Day of month must be between 1 and 31")
+    if "amount_min" in c and "amount_max" in c and c["amount_min"] > c["amount_max"]:
+        raise HTTPException(400, "Minimum amount is above the maximum")
+    if "day_min" in c and "day_max" in c and c["day_min"] > c["day_max"]:
+        raise HTTPException(400, "First day is after the last day")
+    if "cat_id" in a and not categories.get(a["cat_id"]):
+        raise HTTPException(400, "Unknown category")
+    if not c:
+        raise HTTPException(400, "Add at least one condition")
+    if need_actions and not a:
+        raise HTTPException(400, "Add at least one action")
+    return c, a
+
+
+def _rule_out(r):
+    r = dict(r)
+    r["conditions"] = json.loads(r["conditions"] or "{}")
+    r["actions"] = json.loads(r["actions"] or "{}")
+    r["enabled"] = bool(r["enabled"])
+    return r
+
+
+@app.get("/api/rules")
+def list_rules():
+    return [_rule_out(r) for r in db.q("SELECT * FROM rules ORDER BY priority, id")]
+
+
+@app.post("/api/rules/preview")
+def preview_rule(req: PreviewReq):
+    c, _ = _clean_rule(req.conditions, req.actions, need_actions=False)
+    return rules.preview(c)
+
+
+@app.post("/api/rules/apply")
+def apply_rules():
+    return {"changed": rules.categorize()}
+
+
+@app.post("/api/rules")
+def add_rule(req: RuleReq):
+    if not req.name.strip():
+        raise HTTPException(400, "Name is required")
+    c, a = _clean_rule(req.conditions, req.actions)
+    cur = db.run("INSERT INTO rules (name, priority, enabled, conditions, actions, created_from) VALUES (?,?,?,?,?,?)",
+                 (req.name.strip(), req.priority, 1 if req.enabled else 0, json.dumps(c), json.dumps(a), req.created_from))
+    rid = cur.lastrowid
+    changed = rules.categorize() if req.apply_past else 0
+    return {**_rule_out(db.one("SELECT * FROM rules WHERE id=?", (rid,))), "changed": changed}
+
+
+@app.put("/api/rules/{rule_id}")
+def update_rule(rule_id: int, req: RuleReq):
+    if not db.one("SELECT 1 FROM rules WHERE id=?", (rule_id,)):
+        raise HTTPException(404, "Rule not found")
+    if not req.name.strip():
+        raise HTTPException(400, "Name is required")
+    c, a = _clean_rule(req.conditions, req.actions)
+    db.run("UPDATE rules SET name=?, priority=?, enabled=?, conditions=?, actions=? WHERE id=?",
+           (req.name.strip(), req.priority, 1 if req.enabled else 0, json.dumps(c), json.dumps(a), rule_id))
+    changed = rules.categorize() if req.apply_past else 0
+    return {**_rule_out(db.one("SELECT * FROM rules WHERE id=?", (rule_id,))), "changed": changed}
+
+
+@app.delete("/api/rules/{rule_id}")
+def delete_rule(rule_id: int):
+    db.run("DELETE FROM rules WHERE id=?", (rule_id,))
+    return {"ok": True}
+
+
 # ---------- summary ----------
 
 @app.get("/api/summary")
