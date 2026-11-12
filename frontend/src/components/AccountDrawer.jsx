@@ -119,7 +119,6 @@ export default function AccountDrawer({ accountId, onClose, onChanged }) {
         act.basis === 'statement' ? ['Statement date', shortDate(act.statement_date)] : ['No statement date from this account', 'Showing the calendar month', 'var(--muted)'],
         ['Money in', money(act.in_amt), 'var(--pos)'],
         ['Money out', money(act.out_amt ? -act.out_amt : 0)],
-        ['Transactions', String(act.n)],
       ]])
     }
     if (a.holdings?.length) {
@@ -138,7 +137,7 @@ export default function AccountDrawer({ accountId, onClose, onChanged }) {
     ]])
   }
 
-  const isManualAcct = a?.manual && !isHome
+  const isManualAcct = Boolean(a?.manual) && !isHome
   const saveBal = async () => {
     const body = { current: Number(bal.current) || 0, limit_amt: bal.limit_amt === '' ? null : Number(bal.limit_amt) }
     await api.setBalance(a.account_id, body)
