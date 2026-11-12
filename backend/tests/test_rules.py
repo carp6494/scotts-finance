@@ -1,4 +1,8 @@
+import json
+
+import db
 import rules
+from conftest import add_tx
 
 TX = {"transaction_id": "t1", "account_id": "acc-1", "date": "2026-11-15", "amount": 42.5,
       "name": "SQ *JOES BBQ 1234 SPRINGFIELD", "merchant_name": "Joes BBQ", "display_name": None}
@@ -55,12 +59,6 @@ def test_merchant_key():
     assert rules.merchant_key(TX) == "joes bbq"
     assert rules.merchant_key({"merchant_name": None, "name": "  RAW NAME "}) == "raw name"
     assert rules.merchant_key({"merchant_name": None, "name": None}) == ""
-
-
-import json
-
-import db
-from conftest import add_tx
 
 
 def add_rule(name, conditions, actions, priority=100, enabled=1):
@@ -208,3 +206,30 @@ def test_remember_writes_merchant_memory(fresh):
     rules.remember("a", "FOOD_AND_DRINK_COFFEE")
     assert db.one("SELECT cat_id FROM merchant_memory WHERE merchant_key='joes bbq'")["cat_id"] == "FOOD_AND_DRINK_COFFEE"
     assert db.one("SELECT COUNT(*) AS n FROM merchant_memory")["n"] == 1
+
+
+def test_rule_json_that_is_not_an_object_is_skipped(fresh):
+    db.run("INSERT INTO rules (name, conditions, actions) VALUES ('list', '[1,2]', '{}')")
+    db.run("INSERT INTO rules (name, conditions, actions) VALUES ('str', '\"x\"', '[1]')")
+    add_tx("a", detail="FOOD_AND_DRINK_GROCERIES")
+    rules.categorize()
+    assert tx("a")["cat_id"] == "FOOD_AND_DRINK_GROCERIES"
+
+
+def test_similar_count_matches_python_merchant_key(fresh):
+    add_tx("a", merchant="CAFÉ MÜLLER", cat_id="FOOD_AND_DRINK_COFFEE", source="plaid")
+    add_tx("b", merchant="café müller", cat_id="FOOD_AND_DRINK_COFFEE", source="plaid")
+    add_tx("c", merchant="\tcafé müller\t", cat_id="FOOD_AND_DRINK_COFFEE", source="plaid")
+    add_tx("d", merchant="", name="café müller", cat_id="FOOD_AND_DRINK_COFFEE", source="plaid")
+    assert rules.similar_count("a", "FOOD_AND_DRINK_RESTAURANT") == 3
+
+
+def test_rule_display_name_does_not_overwrite_existing(fresh):
+    add_rule("Rename", {"merchant": "joes"}, {"display_name": "Rule Name"})
+    add_tx("a", merchant="Joes BBQ", detail="FOOD_AND_DRINK_FAST_FOOD")
+    db.run("UPDATE transactions SET display_name='Mine' WHERE transaction_id='a'")
+    rules.categorize()
+    assert tx("a")["display_name"] == "Mine"
+    add_tx("b", merchant="Joes BBQ", detail="FOOD_AND_DRINK_FAST_FOOD")
+    rules.categorize(["b"])
+    assert tx("b")["display_name"] == "Rule Name"

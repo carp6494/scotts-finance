@@ -54,9 +54,15 @@ def _load_rules():
     out = []
     for r in db.q("SELECT * FROM rules WHERE enabled=1 ORDER BY priority, id"):
         try:
-            out.append((r, json.loads(r["conditions"] or "{}"), json.loads(r["actions"] or "{}")))
+            cond = json.loads(r["conditions"] or "{}") or {}
+            act = json.loads(r["actions"] or "{}") or {}
         except (json.JSONDecodeError, TypeError):
             log.warning("rule %s (%s) has bad JSON and was skipped", r["id"], r["name"])
+            continue
+        if not isinstance(cond, dict) or not isinstance(act, dict):
+            log.warning("rule %s (%s) conditions or actions are not objects and was skipped", r["id"], r["name"])
+            continue
+        out.append((r, cond, act))
     return out
 
 
@@ -76,7 +82,8 @@ def categorize(transaction_ids=None) -> int:
     """Run the categorization order over every non-user transaction (or just the given ids).
 
     Returns how many rows changed. Flags and display names set by rules are only ever set,
-    never cleared, so a manual exclude survives the next sync.
+    never cleared, so a manual exclude survives the next sync. A rule's display_name only
+    fills an empty one, so a name the user typed is kept.
     """
     loaded = _load_rules()
     memory = {m["merchant_key"]: m["cat_id"] for m in db.q("SELECT merchant_key, cat_id FROM merchant_memory")}
@@ -93,7 +100,7 @@ def categorize(transaction_ids=None) -> int:
                 excluded = 1
             if act.get("transfer"):
                 transfer = 1
-            if act.get("display_name"):
+            if act.get("display_name") and not display:
                 display = act["display_name"]
             if act.get("cat_id"):
                 cat, source = act["cat_id"], f"rule:{r['id']}"
@@ -134,10 +141,9 @@ def similar_count(transaction_id, cat_id) -> int:
     key = merchant_key(t)
     if not key:
         return 0
-    return db.one("""SELECT COUNT(*) AS n FROM transactions
-                     WHERE transaction_id != ? AND LOWER(TRIM(COALESCE(merchant_name, name, ''))) = ?
-                       AND COALESCE(cat_source,'') != 'user' AND COALESCE(cat_id,'') != ?""",
-                  (transaction_id, key, cat_id))["n"]
+    rows = db.q("""SELECT merchant_name, name, cat_id FROM transactions
+                   WHERE transaction_id != ? AND COALESCE(cat_source,'') != 'user'""", (transaction_id,))
+    return sum(1 for r in rows if merchant_key(r) == key and (r["cat_id"] or "") != cat_id)
 
 
 def preview(conditions, limit=10):
