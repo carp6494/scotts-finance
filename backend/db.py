@@ -144,8 +144,9 @@ _ADDED_COLUMNS = (
 for _table, _col in _ADDED_COLUMNS:
     try:
         _con.execute(f"ALTER TABLE {_table} ADD COLUMN {_col}")
-    except sqlite3.OperationalError:
-        pass  # already there
+    except sqlite3.OperationalError as e:
+        if "duplicate column" not in str(e).lower():
+            raise
 _con.execute("CREATE INDEX IF NOT EXISTS ix_tx_cat ON transactions(cat_id)")
 _con.commit()
 
