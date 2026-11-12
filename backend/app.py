@@ -5,7 +5,7 @@ import os
 import threading
 import uuid
 import webbrowser
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -211,11 +211,18 @@ def account_detail(account_id: str):
         out["mortgage"] = {"balance": ma["current"] if ma else None, "name": ma["name"] if ma else None,
                            **(json.loads(m["data"]) if m else {})}
     out["holdings"] = db.q("SELECT * FROM holdings WHERE account_id=? ORDER BY value DESC", (account_id,))
-    month = date.today().strftime("%Y-%m")
+    # Activity since the last statement when the bank sends a statement date, else the calendar month so far.
+    stmt = out["liability"].get("last_statement_issue_date") if out["liability"] and lia["kind"] == "credit" else None
+    if stmt:
+        start = (date.fromisoformat(stmt) + timedelta(days=1)).isoformat()
+        basis = {"basis": "statement", "statement_date": stmt}
+    else:
+        start = date.today().replace(day=1).isoformat()
+        basis = {"basis": "month"}
     agg = db.one("""SELECT COALESCE(SUM(CASE WHEN amount>0 THEN amount END),0) AS out_amt,
                            COALESCE(SUM(CASE WHEN amount<0 THEN -amount END),0) AS in_amt, COUNT(*) AS n
-                    FROM transactions WHERE account_id=? AND substr(date,1,7)=?""", (account_id, month))
-    out["this_month"] = agg
+                    FROM transactions WHERE account_id=? AND date>=?""", (account_id, start))
+    out["activity"] = {**basis, "since": start, **agg}
     return out
 
 

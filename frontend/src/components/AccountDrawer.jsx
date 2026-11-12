@@ -111,16 +111,16 @@ export default function AccountDrawer({ accountId, onClose, onChanged }) {
         ['Credit limit', a.limit_amt ? money(a.limit_amt) : null],
       ]])
     }
-    if (a.this_month && !isHome) {
+    if (a.activity && !isHome) {
+      const act = a.activity
       const monthName = new Date().toLocaleString('en-US', { month: 'long' })
-      sections.push(['This month', a.this_month.n
-        ? [
-          ['Money in', money(a.this_month.in_amt), 'var(--pos)'],
-          ['Money out', money(a.this_month.out_amt ? -a.this_month.out_amt : 0)],
-          ['Transactions', String(a.this_month.n)],
-        ]
-        : [['Transactions', `None yet in ${monthName}`, 'var(--muted)']],
-      ])
+      const title = act.basis === 'statement' ? 'Since last statement' : `${monthName} so far`
+      sections.push([title, [
+        act.basis === 'statement' ? ['Statement date', shortDate(act.statement_date)] : ['No statement date from this account', 'Showing the calendar month', 'var(--muted)'],
+        ['Money in', money(act.in_amt), 'var(--pos)'],
+        ['Money out', money(act.out_amt ? -act.out_amt : 0)],
+        ['Transactions', String(act.n)],
+      ]])
     }
     if (a.holdings?.length) {
       sections.push(['Holdings', a.holdings.map((h) => [h.ticker ? `${h.ticker}, ${h.name}` : h.name, money(h.value)])])
