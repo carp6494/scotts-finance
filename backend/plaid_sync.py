@@ -183,7 +183,10 @@ def sync_item(item_id):
                     continue
                 raise
         db.many(TX_UPSERT, [_tx_row(t, item_id) for t in pages_added + pages_modified])
-        rules.categorize([_d(t)["transaction_id"] for t in pages_added + pages_modified])
+        try:
+            rules.categorize([_d(t)["transaction_id"] for t in pages_added + pages_modified])
+        except Exception:
+            log.exception("categorization after sync failed; transactions saved but left uncategorized")
         for t in pages_removed:
             db.run("DELETE FROM transactions WHERE transaction_id=?", (_d(t)["transaction_id"],))
         added, modified, removed = len(pages_added), len(pages_modified), len(pages_removed)
