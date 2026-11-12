@@ -452,24 +452,69 @@ def patch_category(cat_id: str, req: CategoryPatch):
 # ---------- transactions ----------
 
 @app.get("/api/transactions")
-def transactions(account_id: str | None = None, q: str | None = None, limit: int = 100, offset: int = 0):
+def transactions(account_id: str | None = None, q: str | None = None, cat_id: str | None = None,
+                 spending_only: int = 0, limit: int = 100, offset: int = 0):
     where, args = ["1=1"], []
     if account_id:
         where.append("t.account_id=?")
         args.append(account_id)
+    if cat_id:
+        where.append("t.cat_id=?")
+        args.append(cat_id)
+    if spending_only:
+        where.append("COALESCE(t.excluded,0)=0 AND COALESCE(t.is_transfer,0)=0 AND COALESCE(c.type,'expense') != 'transfer'")
     if q:
-        where.append("(LOWER(COALESCE(t.merchant_name,'')||' '||COALESCE(t.name,'')||' '||COALESCE(t.category,'')) LIKE ?)")
+        where.append("(LOWER(COALESCE(t.display_name,'')||' '||COALESCE(t.merchant_name,'')||' '||COALESCE(t.name,'')||' '||COALESCE(c.name,'')||' '||COALESCE(c.group_name,'')) LIKE ?)")
         args.append(f"%{q.lower()}%")
     w = " AND ".join(where)
-    total = db.one(f"SELECT COUNT(*) AS n FROM transactions t WHERE {w}", args)["n"]
-    rows = db.q(f"""SELECT t.transaction_id, t.account_id, t.date, t.amount, t.name, t.merchant_name, t.pending, t.category,
-                    t.category_detail, t.logo_url, t.user_category, t.reviewed, a.name AS account_name, a.mask
-                    FROM transactions t LEFT JOIN accounts a ON a.account_id=t.account_id
-                    WHERE {w} ORDER BY t.date DESC, t.transaction_id LIMIT ? OFFSET ?""", args + [min(limit, 500), offset])
+    frm = "FROM transactions t LEFT JOIN accounts a ON a.account_id=t.account_id LEFT JOIN categories c ON c.id=t.cat_id"
+    total = db.one(f"SELECT COUNT(*) AS n {frm} WHERE {w}", args)["n"]
+    rows = db.q(f"""SELECT t.transaction_id, t.account_id, t.date, t.amount, t.name, t.merchant_name, t.display_name, t.pending,
+                    t.category, t.category_detail, t.logo_url, t.notes, t.reviewed,
+                    t.cat_id, t.cat_source, COALESCE(t.excluded,0) AS excluded, COALESCE(t.is_transfer,0) AS is_transfer,
+                    c.name AS cat_name, c.group_name AS cat_group, c.type AS cat_type,
+                    a.name AS account_name, a.mask
+                    {frm} WHERE {w} ORDER BY t.date DESC, t.transaction_id LIMIT ? OFFSET ?""", args + [min(limit, 500), offset])
     for r in rows:
         r["logo"] = logos.merchant_logo(r["merchant_name"] or r["name"], r.pop("logo_url"))
         r["display_amount"] = -(r["amount"] or 0)  # Plaid: positive = money out
     return {"total": total, "rows": rows}
+
+
+class TxPatch(BaseModel):
+    cat_id: str | None = None
+    notes: str | None = None
+    excluded: bool | None = None
+    is_transfer: bool | None = None
+    display_name: str | None = None
+
+
+@app.patch("/api/transactions/{transaction_id}")
+def patch_transaction(transaction_id: str, req: TxPatch):
+    if not db.one("SELECT 1 FROM transactions WHERE transaction_id=?", (transaction_id,)):
+        raise HTTPException(404, "Transaction not found")
+    sets, args, similar = [], [], 0
+    if req.cat_id is not None:
+        if not categories.get(req.cat_id):
+            raise HTTPException(400, "Unknown category")
+        similar = rules.similar_count(transaction_id, req.cat_id)
+        sets += ["cat_id=?", "cat_source='user'"]; args.append(req.cat_id)
+        rules.remember(transaction_id, req.cat_id)
+    if req.notes is not None:
+        sets.append("notes=?"); args.append(req.notes)
+    if req.excluded is not None:
+        sets.append("excluded=?"); args.append(1 if req.excluded else 0)
+    if req.is_transfer is not None:
+        sets.append("is_transfer=?"); args.append(1 if req.is_transfer else 0)
+    if req.display_name is not None:
+        sets.append("display_name=?"); args.append(req.display_name.strip() or None)
+    if sets:
+        db.run(f"UPDATE transactions SET {', '.join(sets)} WHERE transaction_id=?", args + [transaction_id])
+    row = db.one("""SELECT t.transaction_id, t.cat_id, t.cat_source, COALESCE(t.excluded,0) AS excluded, COALESCE(t.is_transfer,0) AS is_transfer,
+                           t.display_name, t.notes, c.name AS cat_name, c.group_name AS cat_group, c.type AS cat_type
+                    FROM transactions t LEFT JOIN categories c ON c.id=t.cat_id WHERE t.transaction_id=?""", (transaction_id,))
+    row["similar"] = similar
+    return row
 
 
 # ---------- summary ----------
