@@ -91,6 +91,32 @@ CREATE TABLE IF NOT EXISTS sync_log (
   added INTEGER, modified INTEGER, removed INTEGER,
   error TEXT
 );
+CREATE TABLE IF NOT EXISTS categories (
+  id TEXT PRIMARY KEY,
+  group_name TEXT NOT NULL,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL,
+  hidden INTEGER DEFAULT 0,
+  custom INTEGER DEFAULT 0,
+  sort INTEGER DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS rules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  priority INTEGER DEFAULT 100,
+  enabled INTEGER DEFAULT 1,
+  conditions TEXT NOT NULL DEFAULT '{}',
+  actions TEXT NOT NULL DEFAULT '{}',
+  created_from TEXT,
+  hits INTEGER DEFAULT 0,
+  last_applied TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS merchant_memory (
+  merchant_key TEXT PRIMARY KEY,
+  cat_id TEXT NOT NULL,
+  updated_at TEXT DEFAULT (datetime('now'))
+);
 """
 
 
@@ -104,11 +130,23 @@ def connect():
 
 _con = connect()
 _con.executescript(SCHEMA)
-for _col in ("institution TEXT", "apr_override REAL", "limit_override REAL", "min_payment_override REAL"):
+_ADDED_COLUMNS = (
+    ("accounts", "institution TEXT"),
+    ("accounts", "apr_override REAL"),
+    ("accounts", "limit_override REAL"),
+    ("accounts", "min_payment_override REAL"),
+    ("transactions", "cat_id TEXT"),
+    ("transactions", "cat_source TEXT"),
+    ("transactions", "excluded INTEGER DEFAULT 0"),
+    ("transactions", "is_transfer INTEGER DEFAULT 0"),
+    ("transactions", "display_name TEXT"),
+)
+for _table, _col in _ADDED_COLUMNS:
     try:
-        _con.execute(f"ALTER TABLE accounts ADD COLUMN {_col}")
+        _con.execute(f"ALTER TABLE {_table} ADD COLUMN {_col}")
     except sqlite3.OperationalError:
         pass  # already there
+_con.execute("CREATE INDEX IF NOT EXISTS ix_tx_cat ON transactions(cat_id)")
 _con.commit()
 
 
