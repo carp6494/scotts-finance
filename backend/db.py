@@ -1,5 +1,9 @@
-"""SQLite storage. One local file: data/finance.db."""
+"""SQLite storage. One local file: data/finance.db.
+
+Set FINANCE_DB to a file path to use a different database (tests do this).
+"""
 import json
+import os
 import sqlite3
 import threading
 from pathlib import Path
@@ -7,7 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
 DATA.mkdir(exist_ok=True)
-DB_PATH = DATA / "finance.db"
+DB_PATH = Path(os.environ["FINANCE_DB"]) if os.environ.get("FINANCE_DB") else DATA / "finance.db"
 
 _lock = threading.Lock()
 
