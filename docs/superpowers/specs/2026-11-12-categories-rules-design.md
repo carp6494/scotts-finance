@@ -49,7 +49,7 @@ The existing `user_category` column stays but is no longer read.
 | id INTEGER PK | |
 | name TEXT | Shown in the list |
 | priority INTEGER | Lower runs first. Ties break by id. |
-| enabled INTEGER | Disabled rules are skipped. Transactions they already set keep their values. |
+| enabled INTEGER | Disabled rules are skipped. On the next run, transactions they had set fall back to the next source. |
 | conditions TEXT | JSON, see below |
 | actions TEXT | JSON, see below |
 | created_from TEXT | transaction_id when made from an edit, else null |
@@ -82,7 +82,7 @@ Actions are a JSON object. Any subset may be present.
 | Key | Effect |
 |---|---|
 | cat_id | Sets the category |
-| display_name | Sets the merchant name shown |
+| display_name | Sets the merchant name shown, only when the row has none yet, so a name the user typed is kept |
 | exclude | true sets `excluded` to 1 |
 | transfer | true sets `is_transfer` to 1 |
 
@@ -98,7 +98,7 @@ A rule with no `cat_id` applies its other actions and lets the category fall thr
 4. If `category_detail` from Plaid is set, use it with source `plaid`, inserting the category row if it is new.
 5. Else `UNCATEGORIZED` with source `none`.
 
-Flags set by a rule in step 2 persist even when the category comes from a later step. Re-running the engine recomputes steps 2 to 5 for every non-user transaction, so a transaction set by a rule that no longer matches falls back correctly.
+Flags set by a rule in step 2 persist even when the category comes from a later step. Flags and display names are only ever set by the engine, never cleared, so a manual exclude or rename survives the next sync. A rule row whose JSON is missing, invalid, or not an object is skipped and logged. Re-running the engine recomputes steps 2 to 5 for every non-user transaction, so a transaction set by a rule that no longer matches falls back correctly.
 
 The engine runs after each Plaid sync on the added and modified ids, after each CSV import on the imported ids, once at startup for rows where `cat_id` is null, and on demand from the API.
 
