@@ -23,6 +23,8 @@ import logos  # noqa: E402
 import plaid_sync as ps  # noqa: E402
 import auth  # noqa: E402
 import maintenance  # noqa: E402
+import categories  # noqa: E402
+import rules  # noqa: E402
 from fastapi import Request, Response  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
 
@@ -359,6 +361,7 @@ def import_csv(account_id: str, req: ImportReq):
     db.many("""INSERT OR IGNORE INTO transactions (transaction_id, account_id, item_id, date, authorized_date, amount, name, merchant_name,
                pending, category, category_detail, logo_url, website, payment_channel, raw) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", out)
     after = db.one("SELECT COUNT(*) AS n FROM transactions WHERE account_id=?", (account_id,))["n"]
+    rules.categorize([r[0] for r in out])
     return {"read": len(out), "added": after - before, "duplicates": len(out) - (after - before)}
 
 
@@ -467,6 +470,11 @@ def _daily():
 
 
 def _startup():
+    categories.seed()
+    missing = rules.missing_ids()
+    if missing:
+        n = rules.categorize(missing)
+        log.info("categorized %s transactions that had no category", n)
     threading.Timer(5, _auto_sync).start()
     threading.Timer(10, _daily).start()
     if os.getenv("OPEN_BROWSER", "1") == "1":
