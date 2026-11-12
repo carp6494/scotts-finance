@@ -28,6 +28,7 @@ def match(conditions, t) -> bool:
     try:
         return _match(conditions or {}, t)
     except (ValueError, TypeError, AttributeError):
+        log.debug("match failed on bad values: %s", conditions)
         return False
 
 
@@ -45,6 +46,7 @@ def _match(c, t) -> bool:
     if c.get("account_id") and t.get("account_id") != c["account_id"]:
         return False
     if c.get("day_min") is not None or c.get("day_max") is not None:
+        # A date that is not ISO fails the whole rule rather than ignoring the day condition.
         try:
             day = int(str(t.get("date") or "")[8:10])
         except ValueError:
@@ -56,7 +58,7 @@ def _match(c, t) -> bool:
     return True
 
 
-def _load_rules():
+def _load_rules(known):
     out = []
     for r in db.q("SELECT * FROM rules WHERE enabled=1 ORDER BY priority, id"):
         try:
@@ -75,6 +77,9 @@ def _load_rules():
         if not isinstance(cond, dict) or not isinstance(act, dict):
             log.warning("rule %s (%s) conditions or actions are not objects and was skipped", r["id"], r["name"])
             continue
+        if act.get("cat_id") and act["cat_id"] not in known:
+            log.warning("rule %s (%s) names unknown category %s; its category action is ignored", r["id"], r["name"], act["cat_id"])
+            act = {k: v for k, v in act.items() if k != "cat_id"}
         out.append((r, cond, act))
     return out
 
@@ -100,9 +105,14 @@ def categorize(transaction_ids=None) -> int:
     never cleared, so a manual exclude survives the next sync. A rule's display_name only
     fills an empty one, so a name the user typed is kept.
     """
-    loaded = _load_rules()
-    memory = {m["merchant_key"]: m["cat_id"] for m in db.q("SELECT merchant_key, cat_id FROM merchant_memory")}
     known = {r["id"] for r in db.q("SELECT id FROM categories")}
+    loaded = _load_rules(known)
+    memory = {}
+    for m in db.q("SELECT merchant_key, cat_id FROM merchant_memory"):
+        if m["cat_id"] in known:
+            memory[m["merchant_key"]] = m["cat_id"]
+        else:
+            log.warning("merchant memory for %r names unknown category %s and was ignored", m["merchant_key"], m["cat_id"])
     updates, matched_rules = [], set()
     for t in _rows(transaction_ids):
         cat = source = None
@@ -118,13 +128,11 @@ def categorize(transaction_ids=None) -> int:
             if act.get("display_name") and not display:
                 display = act["display_name"]
             if act.get("cat_id"):
-                if act["cat_id"] in known:
-                    cat, source = act["cat_id"], f"rule:{r['id']}"
-                    break
-                log.warning("rule %s points at unknown category %s and was ignored for the category", r["id"], act["cat_id"])
+                cat, source = act["cat_id"], f"rule:{r['id']}"
+                break
         if not cat:
             mk = merchant_key(t)
-            if mk and memory.get(mk) in known:
+            if mk and mk in memory:
                 cat, source = memory[mk], "merchant"
         if not cat:
             code = t.get("category_detail") or t.get("category")
@@ -168,7 +176,11 @@ def similar_count(transaction_id, cat_id) -> int:
 
 def preview(conditions, limit=10):
     """Count non-user transactions matching the conditions, plus the newest few as a sample."""
-    limit = max(1, min(int(limit), 50))
+    try:
+        limit = int(limit)
+    except (TypeError, ValueError):
+        limit = 10
+    limit = max(1, min(limit, 50))
     rows = [t for t in _rows(None) if match(conditions, t)]
     rows.sort(key=lambda t: (t.get("date") or "", t["transaction_id"]), reverse=True)
     keys = ("transaction_id", "date", "amount", "name", "merchant_name", "display_name", "cat_id")

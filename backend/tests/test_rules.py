@@ -277,3 +277,16 @@ def test_categorize_handles_more_than_500_ids(fresh):
     ids = [add_tx(f"t{i}", detail="FOOD_AND_DRINK_COFFEE") for i in range(501)]
     assert rules.categorize(ids + ids[:3]) == 501
     assert tx("t500")["cat_id"] == "FOOD_AND_DRINK_COFFEE"
+
+
+def test_rule_category_validity_does_not_depend_on_row_order(fresh):
+    rid = add_rule("new", {}, {"cat_id": "FOOD_AND_DRINK_BRAND_NEW"})
+    add_tx("a")
+    add_tx("b", detail="FOOD_AND_DRINK_BRAND_NEW")
+    add_tx("c")
+    rules.categorize()
+    assert tx("a")["cat_source"] == "none"
+    assert tx("b")["cat_source"] == "plaid"
+    assert tx("c")["cat_source"] == "none"
+    rules.categorize()
+    assert {tx(k)["cat_source"] for k in "abc"} == {f"rule:{rid}"}
