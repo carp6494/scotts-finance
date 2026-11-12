@@ -106,6 +106,7 @@ def test_rule_beats_plaid_and_counts_hits(fresh):
 def test_priority_order_and_tie_break(fresh):
     low = add_rule("second", {"merchant": "joes"}, {"cat_id": "FOOD_AND_DRINK_FAST_FOOD"}, priority=200)
     high = add_rule("first", {"merchant": "joes"}, {"cat_id": "FOOD_AND_DRINK_RESTAURANT"}, priority=10)
+    assert low < high
     add_tx("a", merchant="Joes BBQ")
     rules.categorize()
     assert tx("a")["cat_source"] == f"rule:{high}"
@@ -148,12 +149,12 @@ def test_rerun_falls_back_when_rule_stops_matching(fresh):
 
 
 def test_flag_only_rule_keeps_walking_for_category(fresh):
-    add_rule("Rename", {"merchant": "sq *joes"}, {"display_name": "Joe's BBQ", "exclude": True}, priority=1)
+    add_rule("Rename", {"merchant": "sq *joes"}, {"display_name": "Joe's BBQ", "exclude": True, "transfer": True}, priority=1)
     add_rule("Cat", {"merchant": "joes"}, {"cat_id": "FOOD_AND_DRINK_RESTAURANT"}, priority=2)
     add_tx("a", merchant="SQ *JOES BBQ", detail="FOOD_AND_DRINK_FAST_FOOD")
     rules.categorize()
     row = tx("a")
-    assert row["display_name"] == "Joe's BBQ" and row["excluded"] == 1
+    assert row["display_name"] == "Joe's BBQ" and row["excluded"] == 1 and row["is_transfer"] == 1
     assert row["cat_id"] == "FOOD_AND_DRINK_RESTAURANT"
 
 
@@ -241,3 +242,38 @@ def test_falsy_non_object_rule_json_is_skipped(fresh):
     add_tx("a", detail="FOOD_AND_DRINK_GROCERIES")
     rules.categorize()
     assert tx("a")["cat_id"] == "FOOD_AND_DRINK_GROCERIES"
+
+
+def test_bad_condition_values_skip_the_rule_not_the_run(fresh):
+    add_rule("bad amount", {"amount_min": "abc"}, {"cat_id": "FOOD_AND_DRINK_COFFEE"})
+    add_rule("bad day", {"day_min": []}, {"cat_id": "FOOD_AND_DRINK_COFFEE"})
+    add_tx("a", detail="FOOD_AND_DRINK_GROCERIES")
+    rules.categorize()
+    assert tx("a")["cat_id"] == "FOOD_AND_DRINK_GROCERIES"
+
+
+def test_match_never_raises_on_bad_values():
+    assert rules.match({"amount_min": "abc"}, TX) is False
+    assert rules.match({"day_max": "x"}, TX) is False
+    assert rules.match([1, 2], TX) is False
+
+
+def test_rule_with_unknown_category_falls_through(fresh):
+    add_rule("ghost", {"merchant": "joes"}, {"cat_id": "NOPE_NOT_REAL", "exclude": True})
+    add_tx("a", merchant="Joes BBQ", detail="FOOD_AND_DRINK_FAST_FOOD")
+    rules.categorize()
+    assert tx("a")["cat_id"] == "FOOD_AND_DRINK_FAST_FOOD" and tx("a")["cat_source"] == "plaid"
+    assert tx("a")["excluded"] == 1
+
+
+def test_memory_with_unknown_category_falls_through(fresh):
+    db.run("INSERT INTO merchant_memory (merchant_key, cat_id) VALUES ('joes bbq', 'NOPE_NOT_REAL')")
+    add_tx("a", merchant="Joes BBQ", detail="FOOD_AND_DRINK_FAST_FOOD")
+    rules.categorize()
+    assert tx("a")["cat_source"] == "plaid"
+
+
+def test_categorize_handles_more_than_500_ids(fresh):
+    ids = [add_tx(f"t{i}", detail="FOOD_AND_DRINK_COFFEE") for i in range(501)]
+    assert rules.categorize(ids + ids[:3]) == 501
+    assert tx("t500")["cat_id"] == "FOOD_AND_DRINK_COFFEE"

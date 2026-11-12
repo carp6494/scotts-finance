@@ -24,8 +24,14 @@ def _contains(hay, needle) -> bool:
 
 
 def match(conditions, t) -> bool:
-    """True when every condition present in the dict holds for transaction dict t."""
-    c = conditions or {}
+    """True when every condition present in the dict holds for transaction dict t. Bad values never raise."""
+    try:
+        return _match(conditions or {}, t)
+    except (ValueError, TypeError, AttributeError):
+        return False
+
+
+def _match(c, t) -> bool:
     if c.get("merchant"):
         if not any(_contains(t.get(k), c["merchant"]) for k in ("display_name", "merchant_name", "name")):
             return False
@@ -56,8 +62,15 @@ def _load_rules():
         try:
             cond = json.loads(r["conditions"] or "{}")
             act = json.loads(r["actions"] or "{}")
-        except (json.JSONDecodeError, TypeError):
-            log.warning("rule %s (%s) has bad JSON and was skipped", r["id"], r["name"])
+            if isinstance(cond, dict):
+                for k in ("amount_min", "amount_max"):
+                    if cond.get(k) is not None:
+                        cond[k] = float(cond[k])
+                for k in ("day_min", "day_max"):
+                    if cond.get(k) is not None:
+                        cond[k] = int(cond[k])
+        except (json.JSONDecodeError, TypeError, ValueError):
+            log.warning("rule %s (%s) has bad JSON or bad values and was skipped", r["id"], r["name"])
             continue
         if not isinstance(cond, dict) or not isinstance(act, dict):
             log.warning("rule %s (%s) conditions or actions are not objects and was skipped", r["id"], r["name"])
@@ -67,10 +80,12 @@ def _load_rules():
 
 
 def _rows(transaction_ids):
-    base = "SELECT * FROM transactions WHERE COALESCE(cat_source,'') != 'user'"
+    base = ("SELECT transaction_id, account_id, date, amount, name, merchant_name, display_name, category, "
+            "category_detail, cat_id, cat_source, excluded, is_transfer FROM transactions "
+            "WHERE COALESCE(cat_source,'') != 'user'")
     if transaction_ids is None:
         return db.q(base)
-    ids = list(transaction_ids)
+    ids = list(dict.fromkeys(transaction_ids))
     rows = []
     for i in range(0, len(ids), 500):
         chunk = ids[i:i + 500]
@@ -103,11 +118,13 @@ def categorize(transaction_ids=None) -> int:
             if act.get("display_name") and not display:
                 display = act["display_name"]
             if act.get("cat_id"):
-                cat, source = act["cat_id"], f"rule:{r['id']}"
-                break
+                if act["cat_id"] in known:
+                    cat, source = act["cat_id"], f"rule:{r['id']}"
+                    break
+                log.warning("rule %s points at unknown category %s and was ignored for the category", r["id"], act["cat_id"])
         if not cat:
             mk = merchant_key(t)
-            if mk and mk in memory:
+            if mk and memory.get(mk) in known:
                 cat, source = memory[mk], "merchant"
         if not cat:
             code = t.get("category_detail") or t.get("category")
@@ -122,10 +139,13 @@ def categorize(transaction_ids=None) -> int:
         if before != (cat, source, excluded, transfer, display):
             updates.append((cat, source, excluded, transfer, display, t["transaction_id"]))
     if updates:
-        db.many("UPDATE transactions SET cat_id=?, cat_source=?, excluded=?, is_transfer=?, display_name=? WHERE transaction_id=?", updates)
-    db.run("UPDATE rules SET hits=(SELECT COUNT(*) FROM transactions WHERE cat_source='rule:' || rules.id)")
-    for rid in matched_rules:
-        db.run("UPDATE rules SET last_applied=datetime('now') WHERE id=?", (rid,))
+        db.many("""UPDATE transactions SET cat_id=?, cat_source=?, excluded=?, is_transfer=?, display_name=?
+                   WHERE transaction_id=? AND COALESCE(cat_source,'') != 'user'""", updates)
+    db.run("""UPDATE rules SET hits = COALESCE(
+                (SELECT c FROM (SELECT cat_source AS s, COUNT(*) AS c FROM transactions GROUP BY cat_source) WHERE s = 'rule:' || rules.id), 0)""")
+    if matched_rules:
+        db.many("UPDATE rules SET last_applied=datetime('now') WHERE id=?", [(rid,) for rid in matched_rules])
+    log.info("categorized %s rows, %s rules matched", len(updates), len(matched_rules))
     return len(updates)
 
 
@@ -148,6 +168,7 @@ def similar_count(transaction_id, cat_id) -> int:
 
 def preview(conditions, limit=10):
     """Count non-user transactions matching the conditions, plus the newest few as a sample."""
+    limit = max(1, min(int(limit), 50))
     rows = [t for t in _rows(None) if match(conditions, t)]
     rows.sort(key=lambda t: (t.get("date") or "", t["transaction_id"]), reverse=True)
     keys = ("transaction_id", "date", "amount", "name", "merchant_name", "display_name", "cat_id")
