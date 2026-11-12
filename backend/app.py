@@ -393,6 +393,59 @@ def debts():
     return out
 
 
+# ---------- categories ----------
+
+CAT_TYPES = ("income", "expense", "transfer")
+
+
+class CategoryReq(BaseModel):
+    name: str
+    group_name: str
+    type: str = "expense"
+
+
+class CategoryPatch(BaseModel):
+    name: str | None = None
+    group_name: str | None = None
+    hidden: bool | None = None
+
+
+@app.get("/api/categories")
+def list_categories():
+    return categories.grouped()
+
+
+@app.post("/api/categories")
+def add_category(req: CategoryReq):
+    if not req.name.strip() or not req.group_name.strip():
+        raise HTTPException(400, "Name and group are required")
+    if req.type not in CAT_TYPES:
+        raise HTTPException(400, "Type must be income, expense, or transfer")
+    return categories.add_custom(req.name, req.group_name, req.type)
+
+
+@app.patch("/api/categories/{cat_id}")
+def patch_category(cat_id: str, req: CategoryPatch):
+    if cat_id == categories.UNCAT:
+        raise HTTPException(400, "Uncategorized cannot be changed")
+    if not categories.get(cat_id):
+        raise HTTPException(404, "Category not found")
+    sets, args = [], []
+    if req.name is not None:
+        if not req.name.strip():
+            raise HTTPException(400, "Name cannot be empty")
+        sets.append("name=?"); args.append(req.name.strip())
+    if req.group_name is not None:
+        if not req.group_name.strip():
+            raise HTTPException(400, "Group cannot be empty")
+        sets.append("group_name=?"); args.append(req.group_name.strip())
+    if req.hidden is not None:
+        sets.append("hidden=?"); args.append(1 if req.hidden else 0)
+    if sets:
+        db.run(f"UPDATE categories SET {', '.join(sets)} WHERE id=?", args + [cat_id])
+    return categories.get(cat_id)
+
+
 # ---------- transactions ----------
 
 @app.get("/api/transactions")
