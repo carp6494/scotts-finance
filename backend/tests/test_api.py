@@ -73,6 +73,18 @@ def test_zero_bounds_are_kept(fresh):
         app.add_rule(app.RuleReq(name="neg", conditions={"amount_min": 0, "amount_max": -5}, actions={"cat_id": "FOOD_AND_DRINK_COFFEE"}))
 
 
+def test_rule_action_types_are_normalized(fresh):
+    r = app.add_rule(app.RuleReq(name="t", conditions={"merchant": "  joes "}, actions={"exclude": "false", "transfer": "yes", "display_name": 7}))
+    assert r["conditions"] == {"merchant": "joes"}
+    assert r["actions"] == {"transfer": True, "display_name": "7"}
+
+
+def test_delete_missing_rule_is_404(fresh):
+    with pytest.raises(HTTPException) as e:
+        app.delete_rule(12345)
+    assert e.value.status_code == 404
+
+
 def test_rule_crud_preview_apply(fresh):
     seeded(fresh)
     p = app.preview_rule(app.PreviewReq(conditions={"merchant": "joes"}))

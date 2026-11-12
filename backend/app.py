@@ -545,6 +545,21 @@ def _clean_rule(conditions: dict, actions: dict, need_actions: bool = True):
 
     c = {k: v for k, v in (conditions or {}).items() if k in COND_KEYS and _keep(v)}
     a = {k: v for k, v in (actions or {}).items() if k in ACT_KEYS and _keep(v)}
+    for k in ("merchant", "text", "account_id"):
+        if k in c:
+            c[k] = str(c[k]).strip()
+            if not c[k]:
+                del c[k]
+    if "display_name" in a:
+        a["display_name"] = str(a["display_name"]).strip()
+        if not a["display_name"]:
+            del a["display_name"]
+    for k in ("exclude", "transfer"):
+        if k in a:
+            v = a[k]
+            a[k] = v if isinstance(v, bool) else str(v).strip().lower() in ("true", "1", "yes", "on")
+            if not a[k]:
+                del a[k]
     for k in ("amount_min", "amount_max"):
         if k in c:
             try:
@@ -596,13 +611,18 @@ def apply_rules():
     return {"changed": rules.categorize()}
 
 
-@app.post("/api/rules")
-def add_rule(req: RuleReq):
+def _rule_input(req: RuleReq):
     if not req.name.strip():
         raise HTTPException(400, "Name is required")
     c, a = _clean_rule(req.conditions, req.actions)
+    return req.name.strip(), c, a
+
+
+@app.post("/api/rules")
+def add_rule(req: RuleReq):
+    name, c, a = _rule_input(req)
     cur = db.run("INSERT INTO rules (name, priority, enabled, conditions, actions, created_from) VALUES (?,?,?,?,?,?)",
-                 (req.name.strip(), req.priority, 1 if req.enabled else 0, json.dumps(c), json.dumps(a), req.created_from))
+                 (name, req.priority, 1 if req.enabled else 0, json.dumps(c), json.dumps(a), req.created_from))
     rid = cur.lastrowid
     changed = rules.categorize() if req.apply_past else 0
     return {**_rule_out(db.one("SELECT * FROM rules WHERE id=?", (rid,))), "changed": changed}
@@ -612,18 +632,17 @@ def add_rule(req: RuleReq):
 def update_rule(rule_id: int, req: RuleReq):
     if not db.one("SELECT 1 FROM rules WHERE id=?", (rule_id,)):
         raise HTTPException(404, "Rule not found")
-    if not req.name.strip():
-        raise HTTPException(400, "Name is required")
-    c, a = _clean_rule(req.conditions, req.actions)
+    name, c, a = _rule_input(req)
     db.run("UPDATE rules SET name=?, priority=?, enabled=?, conditions=?, actions=? WHERE id=?",
-           (req.name.strip(), req.priority, 1 if req.enabled else 0, json.dumps(c), json.dumps(a), rule_id))
+           (name, req.priority, 1 if req.enabled else 0, json.dumps(c), json.dumps(a), rule_id))
     changed = rules.categorize() if req.apply_past else 0
     return {**_rule_out(db.one("SELECT * FROM rules WHERE id=?", (rule_id,))), "changed": changed}
 
 
 @app.delete("/api/rules/{rule_id}")
 def delete_rule(rule_id: int):
-    db.run("DELETE FROM rules WHERE id=?", (rule_id,))
+    if db.run("DELETE FROM rules WHERE id=?", (rule_id,)).rowcount == 0:
+        raise HTTPException(404, "Rule not found")
     return {"ok": True}
 
 
