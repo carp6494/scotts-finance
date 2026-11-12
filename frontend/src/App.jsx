@@ -57,6 +57,11 @@ function Main({ onLogout }) {
 
   useEffect(() => { refresh().catch((e) => setToast(e.message)) }, [refresh])
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(''), 5000); return () => clearTimeout(t) } }, [toast])
+  useEffect(() => {
+    const onToast = (e) => setToast(e.detail)
+    window.addEventListener('toast', onToast)
+    return () => window.removeEventListener('toast', onToast)
+  }, [])
 
   const sync = async () => {
     setSyncing(true)

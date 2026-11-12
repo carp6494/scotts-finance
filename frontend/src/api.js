@@ -32,6 +32,16 @@ export const api = {
   setTerms: (id, body) => req('PATCH', `/api/accounts/${encodeURIComponent(id)}/terms`, body),
   debts: () => req('GET', '/api/debts'),
   importCsv: (id, body) => req('POST', `/api/accounts/${encodeURIComponent(id)}/import`, body),
+  categories: () => req('GET', '/api/categories'),
+  addCategory: (body) => req('POST', '/api/categories', body),
+  patchCategory: (id, body) => req('PATCH', `/api/categories/${encodeURIComponent(id)}`, body),
+  patchTransaction: (id, body) => req('PATCH', `/api/transactions/${encodeURIComponent(id)}`, body),
+  rules: () => req('GET', '/api/rules'),
+  addRule: (body) => req('POST', '/api/rules', body),
+  updateRule: (id, body) => req('PUT', `/api/rules/${id}`, body),
+  deleteRule: (id) => req('DELETE', `/api/rules/${id}`),
+  previewRule: (body) => req('POST', '/api/rules/preview', body),
+  applyRules: () => req('POST', '/api/rules/apply'),
 }
 
 const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
@@ -43,3 +53,4 @@ export const shortDate = (s) => {
   return isNaN(d) ? s : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 export const titleCase = (s) => (s || '').toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()).replace(/\bApr\b/g, 'APR')
+export const toast = (msg) => window.dispatchEvent(new CustomEvent('toast', { detail: msg }))
