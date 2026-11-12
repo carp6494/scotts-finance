@@ -163,6 +163,75 @@ function RulesTab({ accounts, groups }) {
   )
 }
 
+function CategoriesTab({ groups }) {
+  const [editing, setEditing] = useState(null) // { id, name }
+  const [draft, setDraft] = useState({ name: '', group_name: '', type: 'expense' })
+  const [showHidden, setShowHidden] = useState(false)
+
+  const patch = async (id, body) => {
+    try { await api.patchCategory(id, body); await loadCategories(true) } catch (e) { toast(e.message) }
+  }
+  const add = async (e) => {
+    e.preventDefault()
+    try { await api.addCategory(draft); await loadCategories(true); setDraft({ name: '', group_name: '', type: 'expense' }); toast('Category added.') } catch (x) { toast(x.message) }
+  }
+  const commitRename = async () => {
+    if (editing && editing.name.trim()) await patch(editing.id, { name: editing.name.trim() })
+    setEditing(null)
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <form onSubmit={add} className="card" style={{ padding: 14, display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+        <span style={{ fontSize: 13, color: 'var(--muted)' }}>New category</span>
+        <input required value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Name" style={{ ...inp, flex: '1 1 160px' }} />
+        <input required list="cat-groups-tab" value={draft.group_name} onChange={(e) => setDraft({ ...draft, group_name: e.target.value })} placeholder="Group" style={{ ...inp, flex: '1 1 160px' }} />
+        <datalist id="cat-groups-tab">{groups.map((g) => <option key={g.group_name} value={g.group_name} />)}</datalist>
+        <select value={draft.type} onChange={(e) => setDraft({ ...draft, type: e.target.value })} style={inp}>
+          <option value="expense">Expense</option>
+          <option value="income">Income</option>
+          <option value="transfer">Transfer</option>
+        </select>
+        <button type="submit" className="press" style={btn}>Add</button>
+        <label style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--muted)' }}>
+          <input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} /> Show hidden
+        </label>
+      </form>
+      {groups.map((g) => {
+        const items = g.categories.filter((c) => showHidden || !c.hidden)
+        if (!items.length) return null
+        return (
+          <section key={g.group_name}>
+            <h3 style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--muted)' }}>{g.group_name}</h3>
+            <div style={{ border: '1px solid var(--line)', borderRadius: 12 }}>
+              {items.map((c, i) => (
+                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 14px', borderTop: i ? '1px solid var(--line2)' : 0, fontSize: 14, opacity: c.hidden ? 0.55 : 1 }}>
+                  {editing && editing.id === c.id ? (
+                    <input autoFocus value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })}
+                      onBlur={commitRename} onKeyDown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setEditing(null) }}
+                      style={{ ...inp, height: 30, flex: 1 }} />
+                  ) : (
+                    <button type="button" onClick={() => c.id !== 'UNCATEGORIZED' && setEditing({ id: c.id, name: c.name })} title="Rename"
+                      style={{ flex: 1, textAlign: 'left', border: 0, background: 'transparent', color: 'var(--text)', font: 'inherit', padding: 0 }}>
+                      {c.name}{c.custom ? <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--muted)' }}>custom</span> : null}
+                    </button>
+                  )}
+                  <span style={{ fontSize: 12, color: 'var(--muted)', width: 64 }}>{c.type}</span>
+                  {c.id !== 'UNCATEGORIZED' && (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)' }}>
+                      <input type="checkbox" checked={!c.hidden} onChange={(e) => patch(c.id, { hidden: !e.target.checked })} /> Shown
+                    </label>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function Rules({ accounts }) {
   const [tab, setTab] = useState('rules')
   const groups = useCategories()
@@ -174,7 +243,7 @@ export default function Rules({ accounts }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', gap: 6 }}>{tabBtn('rules', 'Rules')}{tabBtn('categories', 'Categories')}</div>
       {tab === 'rules' && <RulesTab accounts={accounts} groups={groups} />}
-      {tab === 'categories' && <div style={{ fontSize: 14, color: 'var(--muted)' }}>Categories tab arrives in the next task.</div>}
+      {tab === 'categories' && <CategoriesTab groups={groups} />}
     </div>
   )
 }
