@@ -9,6 +9,7 @@ import Lock from './components/Lock'
 import Debt from './pages/Debt'
 import Rules from './pages/Rules'
 import Settings from './pages/Settings'
+import MapPage from './pages/Map'
 
 function useTheme() {
   const [mode, setMode] = useState(() => { try { return localStorage.getItem('theme') || 'system' } catch { return 'system' } })
@@ -26,7 +27,7 @@ function useTheme() {
   return [mode, setMode]
 }
 
-const PAGES = [['dashboard', 'Dashboard'], ['transactions', 'Transactions'], ['rules', 'Rules'], ['debt', 'Debt payoff']]
+const PAGES = [['dashboard', 'Dashboard'], ['transactions', 'Transactions'], ['map', 'Map'], ['rules', 'Rules'], ['debt', 'Debt payoff']]
 
 const TITLES = { ...Object.fromEntries(PAGES), settings: 'Settings' }
 
@@ -137,6 +138,7 @@ function Main({ onLogout }) {
           <motion.div key={page} initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }} transition={{ duration: 0.28, ease: 'easeOut' }}>
             {page === 'dashboard' && <Dashboard summary={summary} accounts={accounts} onOpen={setOpenId} onChanged={refresh} />}
             {page === 'transactions' && <Transactions summary={summary} accounts={accounts} refreshKey={refreshKey} onChanged={refreshTotals} />}
+            {page === 'map' && <MapPage accounts={accounts} refreshKey={refreshKey} onChanged={refreshTotals} />}
             {page === 'rules' && <Rules accounts={accounts} />}
             {page === 'debt' && <Debt />}
             {page === 'settings' && <Settings theme={theme} setTheme={setTheme} />}

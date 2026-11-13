@@ -164,6 +164,8 @@ _ADDED_COLUMNS = (
     ("transactions", "place_lon REAL"),
     ("transactions", "place_store TEXT"),
     ("transactions", "place_source TEXT"),
+    ("transactions", "place_website TEXT"),
+    ("transactions", "place_precision TEXT"),
 )
 for _table, _col in _ADDED_COLUMNS:
     try:

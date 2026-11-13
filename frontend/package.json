@@ -8,10 +8,17 @@
     "build": "vite build"
   },
   "dependencies": {
+    "d3-geo": "^3.1.2",
+    "globe.gl": "^2.46.2",
+    "maplibre-gl": "^6.18.0",
     "motion": "^12.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-plaid-link": "^4.0.0"
+    "react-plaid-link": "^4.0.0",
+    "three": "^0.187.0",
+    "topojson-client": "^3.1.0",
+    "us-atlas": "^3.0.1",
+    "world-atlas": "^2.0.2"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",

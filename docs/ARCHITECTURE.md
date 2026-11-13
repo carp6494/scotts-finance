@@ -51,6 +51,9 @@ The DB runs in WAL mode. Migrations are additive `ALTER TABLE ... ADD COLUMN` st
 | POST | /auth/verify | 6-digit code, sets httponly `sf_session` cookie that lasts for the session setting |
 | POST | /auth/logout | deletes the session row and the cookie |
 | GET / PUT | /settings/session | {hours} for "Stay signed in for": 12, 24, 168 or 720 |
+| GET / PUT | /settings/site-icons | {enabled} for the shop icon fetch |
+| GET | /map | spending grouped by spot; account_id, cat_id, q, start, end, hq |
+| GET | /places/coverage | counts by place source, located rows, lookup present |
 | GET | /status | Plaid configured, env, items + status |
 | POST | /link/token | Link token (transactions, optional liabilities/investments, 730 days); pass item_id for update mode |
 | POST | /link/exchange | public token -> encrypted access token, first sync |
@@ -73,6 +76,10 @@ The DB runs in WAL mode. Migrations are additive `ALTER TABLE ... ADD COLUMN` st
 ## Flows
 
 - **Sign-in:** First run shows a QR code, and Scott scans it into Microsoft Authenticator. Sessions live in the `sessions` table as a hash of the cookie token, so a restart keeps Scott signed in. A session lasts for the "Stay signed in for" setting on the Settings page: 12 hours by default, 30 days at most. Sign out ends it at once.
+- **Places:** `places.py` picks each row's place: owner override, bank location, Overture match, the merchant's other purchases, headquarters. `overture.py` reads `data/overture.db`, written once by `scripts/fetch_places.py`. `geo.py` adds zip or city center coordinates from `backend/geo/US.txt`. `place_precision` says which: exact, likely, zip, city or hq. Likely means the nearest branch of a chain with several in the city. Every row is placed again at startup when the rules version or the extract changes.
+- **Map:** `pages/Map.jsx` loads one view on demand. `UsMap.jsx` (three.js, us-atlas) is the Outline style. `GlobeMap.jsx` (globe.gl, world-atlas) is the World heatmap. Both use bundled data only. `TileMap.jsx` (MapLibre GL JS) is the Satellite, Hybrid and Terrain styles, with a terrain height slider, elevation colors and 3D buildings. One bar is one business; `GET /api/map` returns one point per business per spot.
+- **Map squares:** `tiles.py` serves `GET /api/tiles/{source}/{z}/{x}/{y}` for `imagery`, `hybrid`, `dem` and `buildings`. It fetches from USGS, Terrain Tiles on AWS Open Data, or OpenFreeMap, saves the square under `data/tiles`, and serves it from disk after that. `GET / PUT /api/settings/map` holds the three switches. `DELETE /api/settings/map/saved` empties the folder.
+- **Shop icons:** `site_icons.py` fetches a website's icon in the background for merchants with no other logo.
 - **Plaid:** Link opens in the browser and the public token is exchanged. The access token is encrypted and stored. `transactions_sync` runs with a cursor and retries on `TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION`. After that, accounts, liabilities and holdings are pulled and the institution logo is saved once. When Plaid reports `ITEM_LOGIN_REQUIRED`, a reconnect banner opens Link in update mode.
 - **Timers:** Auto sync runs every 6 hours (started at startup). Daily maintenance backs up to `backups/` (keeping 30) and purges transactions older than 7 years.
 - **Logos:** For tickers, `assets/ticker-logos/<T>.png` is copied once into `data/logos/tickers/`, using the merchant-to-ticker map in `logos.py`. For merchants, the Plaid `logo_url` is downloaded once in the background. Institutions use the Plaid logo saved once. Special cases are Discover (`/brand/discover-card.png`) and the Lowe's, Best Buy and Capital One tickers. If none of these exist, the UI shows a letter tile.

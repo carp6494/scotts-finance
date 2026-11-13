@@ -17,6 +17,12 @@ export const api = {
   logout: () => req('POST', '/api/auth/logout'),
   sessionSetting: () => req('GET', '/api/settings/session'),
   setSessionSetting: (hours) => req('PUT', '/api/settings/session', { hours }),
+  mapSettings: () => req('GET', '/api/settings/map'),
+  setMapSettings: (body) => req('PUT', '/api/settings/map', body),
+  clearSavedMap: () => req('DELETE', '/api/settings/map/saved'),
+  siteIcons: () => req('GET', '/api/settings/site-icons'),
+  setSiteIcons: (enabled) => req('PUT', '/api/settings/site-icons', { enabled }),
+  map: (p = {}) => req('GET', '/api/map?' + new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== ''))),
   status: () => req('GET', '/api/status'),
   summary: (p = {}) => { const qs = new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== '')).toString(); return req('GET', '/api/summary' + (qs ? '?' + qs : '')) },
   accounts: () => req('GET', '/api/accounts'),
@@ -54,6 +60,12 @@ export const shortDate = (s) => {
   if (!s) return ''
   const d = new Date(s + 'T12:00:00')
   return isNaN(d) ? s : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+// With the year, for lists that reach back more than one year.
+export const fullDate = (s) => {
+  if (!s) return ''
+  const d = new Date(s + 'T12:00:00')
+  return isNaN(d) ? s : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 export const titleCase = (s) => (s || '').toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()).replace(/\bApr\b/g, 'APR')
 export const toast = (msg) => window.dispatchEvent(new CustomEvent('toast', { detail: msg }))

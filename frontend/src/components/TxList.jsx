@@ -1,13 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
-import { api, money, shortDate, toast } from '../api'
-import { useCategories, categoryLabel } from '../categories'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { api, money, fullDate, toast } from '../api'
+import { useCategories, categoryLabel, flatCategories } from '../categories'
 import CategoryPicker from './CategoryPicker'
 import Logo from './Logo'
 import PlaceLine from './PlaceLine'
 
 const PAGE = 100
 
-export default function TxList({ accountId, catId, spendingOnly = false, showAccount = true, compact = false, refreshKey = 0, onChanged }) {
+export default function TxList({ accountId, catId, spot, merchant, start, end, spendingOnly = false, showAccount = true, compact = false, refreshKey = 0, onChanged }) {
   const [q, setQ] = useState('')
   const [rows, setRows] = useState([])
   const [total, setTotal] = useState(0)
@@ -17,12 +17,13 @@ export default function TxList({ accountId, catId, spendingOnly = false, showAcc
   const timer = useRef(null)
   const seq = useRef(0)
   const groups = useCategories()
+  const icons = useMemo(() => Object.fromEntries(flatCategories(groups).map((c) => [c.id, c.icon || '🏷️'])), [groups])
 
   const load = async (offset = 0, query = q, limit = PAGE) => {
     const n = ++seq.current
     setLoading(true)
     try {
-      const r = await api.transactions({ account_id: accountId, cat_id: catId, spending_only: spendingOnly ? 1 : undefined, q: query, limit: Math.min(limit, 500), offset })
+      const r = await api.transactions({ account_id: accountId, cat_id: catId, spot, merchant, start, end, spending_only: spendingOnly ? 1 : undefined, q: query, limit: Math.min(limit, 500), offset })
       if (seq.current !== n) return
       setTotal(r.total)
       setRows((prev) => (offset ? [...prev, ...r.rows] : r.rows))
@@ -36,7 +37,7 @@ export default function TxList({ accountId, catId, spendingOnly = false, showAcc
     setSuggestion(null)
     load(0, q)
     return () => clearTimeout(timer.current)
-  }, [accountId, catId, spendingOnly, refreshKey]) // eslint-disable-line
+  }, [accountId, catId, spot, merchant, start, end, spendingOnly, refreshKey]) // eslint-disable-line
 
   const onSearch = (v) => {
     setQ(v)
@@ -89,12 +90,13 @@ export default function TxList({ accountId, catId, spendingOnly = false, showAcc
             <div key={t.transaction_id}>
               <div className="rise" style={{
                 display: 'flex', alignItems: 'center', gap: 12, padding: compact ? '9px 14px' : '11px 16px',
-                borderTop: i ? '1px solid var(--line2)' : 0, animationDelay: `${Math.min(i, 20) * 0.025}s`, opacity: quiet ? 0.6 : 1,
+                borderTop: i ? '1px solid var(--line2)' : 0, animationDelay: `${Math.min(i, 20) * 0.025}s`,
               }}>
-                <span style={{ width: 50, fontSize: 12, color: 'var(--muted)', flexShrink: 0 }}>{shortDate(t.date)}</span>
-                <Logo src={t.logo} name={t.merchant_name || t.name} size={compact ? 28 : 32} />
+                <span style={{ width: 86, fontSize: 12, color: 'var(--muted)', flexShrink: 0, whiteSpace: 'nowrap' }}>{fullDate(t.date)}</span>
+                <Logo src={t.logo} name={t.merchant_name || t.name} size={compact ? 28 : 32} icon={icons[t.cat_id] || '❔'} />
                 <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ display: 'block', fontSize: 14, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {/* Transfers and excluded rows keep full-color icons and categories. Only the name and amount go quiet. */}
+                  <span style={{ display: 'block', fontSize: 14, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: quiet ? 'var(--muted)' : undefined }}>
                     {t.display_name || t.merchant_name || t.name}
                     {t.pending ? <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--warn)' }}>Pending</span> : null}
                     {t.excluded ? <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--muted)' }}>Excluded</span> : null}
@@ -108,7 +110,7 @@ export default function TxList({ accountId, catId, spendingOnly = false, showAcc
                     ? (t.place_city ? <span style={{ display: 'block', marginTop: 2, fontSize: 11, color: 'var(--muted2)' }}>{t.place_source === 'hq' ? '🏢' : '📍'} {t.place_city}{t.place_region ? ', ' + t.place_region : ''}</span> : null)
                     : <span style={{ display: 'block', marginTop: 2 }}><PlaceLine t={t} onSaved={() => { load(0, q, Math.max(PAGE, rows.length)); onChanged && onChanged() }} /></span>}
                 </span>
-                <span className="num" style={{ fontSize: 14, fontWeight: 600, color: t.display_amount > 0 ? 'var(--pos)' : 'var(--text)' }}>
+                <span className="num" style={{ fontSize: 14, fontWeight: 600, color: quiet ? 'var(--muted)' : t.display_amount > 0 ? 'var(--pos)' : 'var(--text)' }}>
                   {t.display_amount > 0 ? '+' : ''}{money(t.display_amount)}
                 </span>
               </div>

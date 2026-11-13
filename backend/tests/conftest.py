@@ -11,6 +11,31 @@ os.environ["FINANCE_DB"] = str(_TMP / "test.db")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # backend/
 
 import db  # noqa: E402
+import overture  # noqa: E402
+
+overture.DB_PATH = _TMP / "overture.db"  # never read the real extract in data/
+
+
+@pytest.fixture
+def lookup():
+    """Write a small Overture extract. Call it with rows of (name, address, city, region, postal, lat, lon, website)."""
+    import sqlite3
+
+    def make(rows):
+        overture.reset()
+        overture.DB_PATH.unlink(missing_ok=True)
+        con = sqlite3.connect(overture.DB_PATH)
+        con.executescript(overture.SCHEMA)
+        for i, (name, address, city, region, postal, lat, lon, website) in enumerate(rows):
+            con.execute("INSERT INTO places VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (str(i), name, overture.norm_name(name), address, city, overture.norm_city(city), region, postal, "US",
+                         lat, lon, website, "shop", None, 0.9))
+        con.commit()
+        con.close()
+
+    yield make
+    overture.reset()
+    overture.DB_PATH.unlink(missing_ok=True)
 
 
 @pytest.fixture

@@ -3,7 +3,8 @@
 Order of preference for a merchant:
   1. Ticker logos bundled in assets/ticker-logos (copied once into data/logos)
   2. Plaid's merchant logo_url (downloaded once in the background)
-  3. None (the UI shows a letter tile)
+  3. The icon of the merchant's own website (see site_icons.py)
+  4. None (the UI shows the category icon)
 """
 import base64
 import hashlib
@@ -85,12 +86,15 @@ def _download(url: str, dest: Path):
             _pending.discard(url)
 
 
-def merchant_logo(name: str, logo_url: str = None):
+def merchant_logo(name: str, logo_url: str = None, website: str = None):
     t = ticker_logo(ticker_for(name))
     if t:
         return t
     if not logo_url:
-        return None
+        if not website:
+            return None
+        import site_icons  # imported here because site_icons imports this module
+        return site_icons.logo_for(website)
     key = hashlib.sha1(logo_url.encode()).hexdigest()[:16]
     dest = LOGOS / "merchants" / f"{key}.png"
     if dest.exists():

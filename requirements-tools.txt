@@ -1,0 +1,2 @@
+# Only for scripts\fetch_places.py. The app itself does not need these.
+overturemaps>=2.1

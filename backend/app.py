@@ -1,6 +1,8 @@
 """Scott's Finance: local API + web app. Runs only on 127.0.0.1."""
 import json
 import logging
+import math
+import mimetypes
 import os
 import threading
 import uuid
@@ -26,6 +28,8 @@ import maintenance  # noqa: E402
 import categories  # noqa: E402
 import rules  # noqa: E402
 import places  # noqa: E402
+import site_icons  # noqa: E402
+import tiles  # noqa: E402
 from fastapi import Request, Response  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
 
@@ -108,6 +112,59 @@ def put_session_setting(req: SessionReq, request: Request, response: Response):
         raise HTTPException(400, str(e))
     _set_session_cookie(response, token)
     return get_session_setting()
+
+
+class ToggleReq(BaseModel):
+    enabled: bool
+
+
+class MapSettingsReq(BaseModel):
+    usgs: bool | None = None
+    terrain: bool | None = None
+    buildings: bool | None = None
+
+
+@app.get("/api/settings/map")
+def get_map_settings():
+    return {**tiles.settings(), "saved": tiles.saved()}
+
+
+@app.put("/api/settings/map")
+def put_map_settings(req: MapSettingsReq):
+    for group, on in req.model_dump(exclude_none=True).items():
+        tiles.set_setting(group, on)
+    return get_map_settings()
+
+
+@app.delete("/api/settings/map/saved")
+def clear_saved_map():
+    return {"removed": tiles.clear(), **get_map_settings()}
+
+
+@app.get("/api/tiles/{source}/{z}/{x}/{y}")
+def map_tile(source: str, z: int, x: int, y: int):
+    """One map square, from disk or from its public service. Under /api/, so it needs sign-in."""
+    try:
+        got = tiles.get(source, z, x, y)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    except tiles.Refused:
+        raise HTTPException(403, "This map data is switched off in Settings.")
+    if got is None:
+        return Response(status_code=204)
+    body, media = got
+    return Response(content=body, media_type=media, headers={"Cache-Control": "private, max-age=604800"})
+
+
+@app.get("/api/settings/site-icons")
+def get_site_icons_setting():
+    return {"enabled": site_icons.enabled()}
+
+
+@app.put("/api/settings/site-icons")
+def put_site_icons_setting(req: ToggleReq):
+    site_icons.set_enabled(req.enabled)
+    return get_site_icons_setting()
 
 CASH_TYPES = ("depository",)
 DEBT_TYPES = ("credit", "loan")
@@ -500,8 +557,25 @@ def patch_category(cat_id: str, req: CategoryPatch):
 
 @app.get("/api/transactions")
 def transactions(account_id: str | None = None, q: str | None = None, cat_id: str | None = None,
-                 spending_only: int = 0, limit: int = 100, offset: int = 0):
+                 spending_only: int = 0, limit: int = 100, offset: int = 0,
+                 spot: str | None = None, start: str | None = None, end: str | None = None, merchant: str | None = None):
     where, args = ["1=1"], []
+    if merchant:
+        where.append("COALESCE(NULLIF(t.display_name,''), NULLIF(t.merchant_name,''), t.name)=?")
+        args.append(merchant)
+    if spot:
+        try:
+            lat, lon = (float(x) for x in spot.split(","))
+        except ValueError:
+            raise HTTPException(400, "spot must be latitude,longitude")
+        where.append("ROUND(t.place_lat,4)=ROUND(?,4) AND ROUND(t.place_lon,4)=ROUND(?,4)")
+        args += [lat, lon]
+    if start:
+        where.append("t.date>=?")
+        args.append(start)
+    if end:
+        where.append("t.date<=?")
+        args.append(end)
     if account_id:
         where.append("t.account_id=?")
         args.append(account_id)
@@ -517,14 +591,15 @@ def transactions(account_id: str | None = None, q: str | None = None, cat_id: st
     frm = "FROM transactions t LEFT JOIN accounts a ON a.account_id=t.account_id LEFT JOIN categories c ON c.id=t.cat_id"
     total = db.one(f"SELECT COUNT(*) AS n {frm} WHERE {w}", args)["n"]
     rows = db.q(f"""SELECT t.transaction_id, t.account_id, t.date, t.amount, t.name, t.merchant_name, t.display_name,
-                    t.place_address, t.place_city, t.place_region, t.place_postal, t.place_country, t.place_lat, t.place_lon, t.place_source, t.pending,
-                    t.category, t.category_detail, t.logo_url, t.notes, t.reviewed,
+                    t.place_address, t.place_city, t.place_region, t.place_postal, t.place_country, t.place_lat, t.place_lon, t.place_source, t.place_precision, t.pending,
+                    t.category, t.category_detail, t.logo_url, t.website, t.place_website, t.notes, t.reviewed,
                     t.cat_id, t.cat_source, COALESCE(t.excluded,0) AS excluded, COALESCE(t.is_transfer,0) AS is_transfer,
                     c.name AS cat_name, c.group_name AS cat_group, c.type AS cat_type,
                     a.name AS account_name, a.mask
                     {frm} WHERE {w} ORDER BY t.date DESC, t.transaction_id LIMIT ? OFFSET ?""", args + [min(limit, 500), offset])
     for r in rows:
-        r["logo"] = logos.merchant_logo(r["merchant_name"] or r["name"], r.pop("logo_url"))
+        r["logo"] = logos.merchant_logo(r["merchant_name"] or r["name"], r.pop("logo_url"), r.pop("website") or r.pop("place_website"))
+        r.pop("place_website", None)
         r["display_amount"] = -(r["amount"] or 0)  # Plaid: positive = money out
         r["place_line"] = places.line(r)
     return {"total": total, "rows": rows}
@@ -569,7 +644,7 @@ def patch_transaction(transaction_id: str, req: TxPatch):
         places.set_user_place(transaction_id, req.place)
     row = db.one("""SELECT t.transaction_id, t.cat_id, t.cat_source, COALESCE(t.excluded,0) AS excluded, COALESCE(t.is_transfer,0) AS is_transfer,
                            t.display_name, t.notes, c.name AS cat_name, c.group_name AS cat_group, c.type AS cat_type,
-                           t.place_address, t.place_city, t.place_region, t.place_postal, t.place_country, t.place_lat, t.place_lon, t.place_source
+                           t.place_address, t.place_city, t.place_region, t.place_postal, t.place_country, t.place_lat, t.place_lon, t.place_source, t.place_precision
                     FROM transactions t LEFT JOIN categories c ON c.id=t.cat_id WHERE t.transaction_id=?""", (transaction_id,))
     row["similar"] = similar
     row["place_line"] = places.line(row)
@@ -710,6 +785,72 @@ def places_coverage():
     return places.coverage()
 
 
+_PRECISION_RANK = {"exact": 0, "likely": 1, "zip": 2, "city": 3, "hq": 4}
+
+
+# How far apart to stand businesses that share one point, in degrees. A city center holds many
+# businesses, so they spread wide. An exact address holds few, so they stay close.
+_SPREAD = {"exact": 0.0006, "likely": 0.0006, "zip": 0.004, "city": 0.004, "hq": 0.02}
+_MERCHANT = "COALESCE(NULLIF(t.display_name,''), NULLIF(t.merchant_name,''), t.name)"
+
+
+@app.get("/api/map")
+def map_points(account_id: str | None = None, cat_id: str | None = None, q: str | None = None,
+               start: str | None = None, end: str | None = None, hq: int = 0):
+    """One point per business per spot. The spot says where the bar stands; the total is the money spent at that business."""
+    where = ["t.amount>0", "t.pending=0", "COALESCE(t.excluded,0)=0", "COALESCE(t.is_transfer,0)=0",
+             "COALESCE(c.type,'expense')='expense'"]
+    args = []
+    for clause, value in (("t.account_id=?", account_id), ("t.cat_id=?", cat_id), ("t.date>=?", start), ("t.date<=?", end)):
+        if value:
+            where.append(clause)
+            args.append(value)
+    if q:
+        where.append("LOWER(COALESCE(t.display_name,'')||' '||COALESCE(t.merchant_name,'')||' '||COALESCE(t.name,'')) LIKE ?")
+        args.append(f"%{q.lower()}%")
+    rows = db.q(f"""SELECT ROUND(t.place_lat,4) AS lat, ROUND(t.place_lon,4) AS lon, t.place_address, t.place_city, t.place_region,
+                           t.place_country, t.place_precision, t.place_source, t.amount, {_MERCHANT} AS merchant
+                    FROM transactions t LEFT JOIN categories c ON c.id=t.cat_id WHERE {' AND '.join(where)}""", args)
+    found = {}
+    unplaced = {"count": 0, "total": 0.0}
+    at_hq = {"count": 0, "total": 0.0}
+    for r in rows:
+        if r["lat"] is None or r["lon"] is None:
+            unplaced["count"] += 1
+            unplaced["total"] += r["amount"]
+            continue
+        if r["place_source"] == "hq":
+            at_hq["count"] += 1
+            at_hq["total"] += r["amount"]
+            if not hq:
+                continue
+        precision = r["place_precision"] or "city"
+        name = r["merchant"] or "Unknown"
+        s = found.setdefault((name, r["lat"], r["lon"]), {
+            "id": f"{name}|{r['lat']}|{r['lon']}", "name": name, "lat": r["lat"], "lon": r["lon"],
+            "address": r["place_address"], "city": r["place_city"], "region": r["place_region"], "country": r["place_country"],
+            "precision": precision, "total": 0.0, "count": 0})
+        if _PRECISION_RANK.get(precision, 9) < _PRECISION_RANK.get(s["precision"], 9):
+            s["precision"] = precision
+        s["address"] = s["address"] or r["place_address"]
+        s["total"] += r["amount"]
+        s["count"] += 1
+    points = sorted(found.values(), key=lambda p: (-p["total"], p["name"]))
+    # Businesses that share a point stand in a spiral around it, biggest in the middle, so every bar can be seen.
+    taken = {}
+    for p in points:
+        k = taken.get((p["lat"], p["lon"]), 0)
+        taken[(p["lat"], p["lon"])] = k + 1
+        step = _SPREAD.get(p["precision"], 0.004)
+        r, turn = step * math.sqrt(k), math.radians(137.508) * k
+        p["show_lat"] = round(p["lat"] + r * math.sin(turn), 5)
+        p["show_lon"] = round(p["lon"] + r * math.cos(turn) / max(math.cos(math.radians(p["lat"])), 0.2), 5)
+        p["total"] = round(p["total"], 2)
+    for d in (unplaced, at_hq):
+        d["total"] = round(d["total"], 2)
+    return {"points": points, "unplaced": unplaced, "hq": at_hq, "total": round(sum(p["total"] for p in points), 2)}
+
+
 # ---------- summary ----------
 
 @app.get("/api/summary")
@@ -734,6 +875,10 @@ def summary(account_id: str | None = None, cat_id: str | None = None):
 
 
 # ---------- static ----------
+
+# Windows can report script files as plain text, and browsers refuse to run a module worker served that way.
+mimetypes.add_type("text/javascript", ".mjs")
+mimetypes.add_type("text/javascript", ".js")
 
 app.mount("/logos", StaticFiles(directory=str(logos.LOGOS)), name="logos")
 DIST = ROOT / "frontend" / "dist"
@@ -778,6 +923,9 @@ def _startup():
     except Exception:
         log.exception("startup categorization failed; continuing without it")
     try:
+        refreshed = places.refresh_if_stale()
+        if refreshed is not None:
+            log.info("placed every transaction again, %s changed", refreshed)
         missing_places = places.missing_ids()
         if missing_places:
             log.info("placed %s transactions", places.fill(missing_places))

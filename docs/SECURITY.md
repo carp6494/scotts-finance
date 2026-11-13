@@ -15,6 +15,10 @@ These controls back the security attestations Scott gave Plaid. The full policy 
 | Daily DB backups, 30 kept, local only | `maintenance.py` |
 | Scott can remove a bank (Plaid item_remove + local delete) | `DELETE /api/items/{id}` |
 | No data shared with third parties; no Claude API or other AI API calls | whole app |
+| Shop icon fetch sends no owner or purchase data. HTTPS only, public hosts only, 3 redirects, 300 KB cap, one try per domain per 30 days. Off switch on the Settings page | `site_icons.py`, `PUT /api/settings/site-icons` |
+| The Outline map and the World view load nothing from the network | `UsMap.jsx`, `GlobeMap.jsx` |
+| The browser never contacts a map service. Satellite, terrain and building squares come through this app, from a fixed list of three free public services, and are saved in `data\tiles`. A request carries only the square's zoom and position. Each service has its own switch on the Settings page. Satellite photos are on. Terrain elevation and 3D buildings stay off until the owner turns them on | `tiles.py`, `GET /api/tiles/...`, `PUT /api/settings/map` |
+| The local business extract names the owner's region, so it stays in `data\` and is never committed | `scripts/fetch_places.py`, `.gitignore` |
 | Dependencies from PyPI/npm only; keep them updated | `requirements.txt`, `package.json` |
 
 Before a release-sized change, check:
