@@ -34,7 +34,7 @@ button { font: inherit; cursor: pointer; }
 .odo-strip span { display: block; height: 1.15em; line-height: 1.15em; text-align: center; }
 
 @keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
-.rise { animation: rise .55s ease both; }
+.rise { animation: rise .55s ease backwards; }
 @keyframes growX { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 @keyframes spin { to { transform: rotate(360deg); } }
 .spin { animation: spin .8s linear infinite; }

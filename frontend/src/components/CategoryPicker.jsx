@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { api } from '../api'
 import { useCategories, flatCategories, loadCategories } from '../categories'
 
@@ -13,6 +14,8 @@ export default function CategoryPicker({ value, onChange, compact = false }) {
   const [draft, setDraft] = useState({ name: '', group_name: '', type: 'expense' })
   const [err, setErr] = useState('')
   const box = useRef(null)
+  const pop = useRef(null)
+  const [pos, setPos] = useState({ top: 0, left: 0 })
   const groupsId = useId()
 
   const all = flatCategories(groups)
@@ -20,10 +23,20 @@ export default function CategoryPicker({ value, onChange, compact = false }) {
 
   useEffect(() => {
     if (!open) return
-    const onDoc = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false) }
+    const onDoc = (e) => {
+      if (box.current?.contains(e.target) || pop.current?.contains(e.target)) return
+      close()
+    }
+    const onScroll = (e) => { if (!pop.current?.contains(e.target)) close() }
     document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [open])
+    window.addEventListener('scroll', onScroll, true)
+    window.addEventListener('resize', close)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      window.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('resize', close)
+    }
+  }, [open]) // eslint-disable-line
 
   const needle = q.trim().toLowerCase()
   const visible = all
@@ -40,6 +53,16 @@ export default function CategoryPicker({ value, onChange, compact = false }) {
   const onKey = (e) => {
     if (e.key === 'Enter' && visible.length) { e.preventDefault(); pick(visible[0].id) }
   }
+  const toggle = (e) => {
+    e.stopPropagation()
+    if (open) { close(); return }
+    const r = e.currentTarget.getBoundingClientRect()
+    const width = 300
+    const left = Math.min(r.left, window.innerWidth - width - 8)
+    const top = r.bottom + 4
+    setPos({ top, left, maxHeight: Math.max(160, Math.min(380, window.innerHeight - top - 8)) })
+    setOpen(true)
+  }
   const add = async (e) => {
     e.preventDefault()
     try {
@@ -50,15 +73,17 @@ export default function CategoryPicker({ value, onChange, compact = false }) {
   }
 
   return (
-    <span ref={box} style={{ position: 'relative', display: 'inline-block' }}>
-      <button type="button" onClick={(e) => { e.stopPropagation(); setOpen(!open) }} className="press" title="Change category"
-        aria-haspopup="listbox" aria-expanded={open}
-        style={{ font: 'inherit', fontSize: compact ? 11 : 12, lineHeight: 1.4, color: 'var(--text2)', background: 'var(--hover)', border: '1px solid var(--line)', borderRadius: 999, padding: '1px 9px', whiteSpace: 'nowrap' }}>
-        {current ? `${current.group_name} · ${current.name}` : 'Uncategorized'}
-      </button>
-      {open && (
-        <div onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); close() } }}
-          style={{ position: 'absolute', zIndex: 60, top: 'calc(100% + 4px)', left: 0, width: 300, maxHeight: 380, overflowY: 'auto', background: 'var(--card)', border: '1px solid var(--line3)', borderRadius: 10, boxShadow: '0 12px 40px rgba(0,0,0,.35)', padding: 8 }}>
+    <>
+      <span ref={box} style={{ position: 'relative', display: 'inline-block' }}>
+        <button type="button" onClick={toggle} className="press" title="Change category"
+          aria-haspopup="listbox" aria-expanded={open}
+          style={{ font: 'inherit', fontSize: compact ? 11 : 12, lineHeight: 1.4, color: 'var(--text2)', background: 'var(--hover)', border: '1px solid var(--line)', borderRadius: 999, padding: '1px 9px', whiteSpace: 'nowrap' }}>
+          {current ? `${current.group_name} · ${current.name}` : 'Uncategorized'}
+        </button>
+      </span>
+      {open && createPortal(
+        <div ref={pop} onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); close() } }}
+          style={{ position: 'fixed', top: pos.top, left: pos.left, zIndex: 1000, width: 300, maxHeight: pos.maxHeight, overflowY: 'auto', background: 'var(--card)', border: '1px solid var(--line3)', borderRadius: 10, boxShadow: '0 12px 40px rgba(0,0,0,.35)', padding: 8 }}>
           <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKey} placeholder="Search categories" aria-label="Search categories"
             style={{ ...inp, width: '100%', height: 34, marginBottom: 6 }} />
           {byGroup.map((g) => (
@@ -92,8 +117,9 @@ export default function CategoryPicker({ value, onChange, compact = false }) {
               </form>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
-    </span>
+    </>
   )
 }
