@@ -94,3 +94,10 @@ def test_grouped_includes_icon(fresh):
     g = categories.grouped()
     food = next(x for x in g if x["group_name"] == "Food & drink")
     assert "icon" in food["categories"][0]
+
+
+def test_seed_includes_extras(fresh):
+    row = db.one("SELECT * FROM categories WHERE id='EXTRA_CANNABIS'")
+    assert row["group_name"] == "Shopping" and row["name"] == "Cannabis" and row["icon"] == "🌿" and row["type"] == "expense"
+    categories.seed()
+    assert db.one("SELECT COUNT(*) AS n FROM categories WHERE name='Cannabis'")["n"] == 1

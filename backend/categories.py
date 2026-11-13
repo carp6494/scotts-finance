@@ -73,6 +73,12 @@ GROUP_ICON_BY_NAME = {GROUPS[p][0]: GROUP_ICONS[p] for p in GROUPS}
 DEFAULT_ICON = "🏷️"
 UNCAT_ICON = "❔"
 
+# Built-in categories Plaid does not have. Same shape as the seed rows: id, group, name, type, sort, icon.
+# Plaid never assigns these, so they are reached by rules or by hand.
+EXTRAS = [
+    ("EXTRA_CANNABIS", "Shopping", "Cannabis", "expense", 50, "🌿"),
+]
+
 ICONS = {
     "INCOME_DIVIDENDS": "💹", "INCOME_INTEREST_EARNED": "🏦", "INCOME_RETIREMENT_PENSION": "🧓", "INCOME_TAX_REFUND": "🧾",
     "INCOME_UNEMPLOYMENT": "📄", "INCOME_WAGES": "💵", "INCOME_OTHER_INCOME": "💰",
@@ -162,6 +168,7 @@ def seed():
             code = f"{p}_{s}"
             rows.append((code, group, readable(code), typ, i, default_icon(code)))
     rows.append((UNCAT, "Uncategorized", "Uncategorized", "expense", 0, UNCAT_ICON))
+    rows += EXTRAS
     db.many("INSERT OR IGNORE INTO categories (id, group_name, name, type, sort, icon) VALUES (?,?,?,?,?,?)", rows)
     # Fill icons for rows that predate the column or were inserted by ensure(); never overwrite a chosen icon.
     rows = db.q("SELECT id, group_name FROM categories WHERE icon IS NULL OR icon=''")
