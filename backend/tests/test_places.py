@@ -99,3 +99,44 @@ def test_coverage(fresh):
     db.run("UPDATE transactions SET raw=? WHERE transaction_id='b'", (ONLINE_RAW,))
     places.fill()
     assert places.coverage() == {"plaid": 1, "hq": 1, "user": 0, "none": 1, "total": 3}
+
+
+def test_extract_coordinates_without_city():
+    raw = json.dumps({"location": {"lat": 1.5, "lon": 2.5}})
+    assert places.extract(raw)["lat"] == 1.5
+    assert places.extract(json.dumps({"location": "1 Main St"})) is None
+    assert places.extract(json.dumps({"location": ["x"]})) is None
+
+
+def test_fill_survives_bad_rows_and_is_idempotent_with_numeric_raw(fresh):
+    add_tx("bad", merchant="Shop"); add_tx("num", merchant="Shop"); add_tx("ok", merchant="Amazon")
+    db.run("UPDATE transactions SET raw=? WHERE transaction_id='bad'", (json.dumps({"location": "oops"}),))
+    db.run("UPDATE transactions SET raw=? WHERE transaction_id='num'", (json.dumps({"location": {"address": 100, "city": "Springfield", "postal_code": 12345, "store_number": 42}}),))
+    db.run("UPDATE transactions SET raw=? WHERE transaction_id='ok'", (ONLINE_RAW,))
+    assert places.fill() == 3  # bad -> none, num -> plaid, ok -> hq
+    assert places.fill() == 0
+    assert row("num")["place_address"] == "100" and row("num")["place_store"] == "42"
+
+
+def test_user_place_keeps_plaid_coordinates(fresh):
+    add_tx("a", merchant="Shop")
+    db.run("UPDATE transactions SET raw=? WHERE transaction_id='a'", (PLAID_RAW,))
+    places.fill()
+    places.set_user_place("a", {"city": "Riverside", "region": "CA"})
+    r = row("a")
+    assert r["place_source"] == "user" and r["place_city"] == "Riverside" and r["place_lat"] == 36.15
+
+
+def test_clear_reverts_hq_row(fresh):
+    add_tx("a", merchant="Amazon")
+    db.run("UPDATE transactions SET raw=? WHERE transaction_id='a'", (ONLINE_RAW,))
+    places.fill()
+    places.set_user_place("a", {"city": "Riverside"})
+    places.clear_user_place("a")
+    assert row("a")["place_source"] == "hq"
+
+
+def test_domain_of_schemes():
+    assert places.domain_of("mailto:help@amazon.com") is None or places.domain_of("mailto:help@amazon.com") != "mailto"
+    assert places.domain_of("//amazon.com/x") == "amazon.com"
+    assert places.domain_of("HTTPS://WWW.Amazon.com:443/a") == "amazon.com"

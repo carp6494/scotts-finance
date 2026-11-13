@@ -364,9 +364,12 @@ def import_csv(account_id: str, req: ImportReq):
     after = db.one("SELECT COUNT(*) AS n FROM transactions WHERE account_id=?", (account_id,))["n"]
     try:
         rules.categorize([r[0] for r in out])
-        places.fill([r[0] for r in out])
     except Exception:
         log.exception("categorization after import failed; rows imported but left uncategorized")
+    try:
+        places.fill([r[0] for r in out])
+    except Exception:
+        log.exception("placing after import failed; rows imported but left unplaced")
     return {"read": len(out), "added": after - before, "duplicates": len(out) - (after - before)}
 
 
@@ -536,7 +539,7 @@ def patch_transaction(transaction_id: str, req: TxPatch):
     if req.clear_place:
         places.clear_user_place(transaction_id)
     elif req.place is not None:
-        if not isinstance(req.place, dict) or not any((req.place.get(k) or "").strip() for k in ("address", "city", "region", "postal")):
+        if not isinstance(req.place, dict) or not any(str(req.place.get(k) or "").strip() for k in ("address", "city", "region", "postal", "country")):
             raise HTTPException(400, "Enter at least a city or an address")
         places.set_user_place(transaction_id, req.place)
     row = db.one("""SELECT t.transaction_id, t.cat_id, t.cat_source, COALESCE(t.excluded,0) AS excluded, COALESCE(t.is_transfer,0) AS is_transfer,
@@ -747,11 +750,14 @@ def _startup():
         if missing:
             n = rules.categorize(missing)
             log.info("categorized %s transactions that had no category", n)
+    except Exception:
+        log.exception("startup categorization failed; continuing without it")
+    try:
         missing_places = places.missing_ids()
         if missing_places:
             log.info("placed %s transactions", places.fill(missing_places))
     except Exception:
-        log.exception("startup categorization failed; continuing without it")
+        log.exception("startup placing failed; continuing without it")
     threading.Timer(5, _auto_sync).start()
     threading.Timer(10, _daily).start()
     if os.getenv("OPEN_BROWSER", "1") == "1":

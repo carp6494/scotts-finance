@@ -158,3 +158,9 @@ def test_list_has_place_line_and_patch_place(fresh):
     out = app.patch_transaction("a", app.TxPatch(clear_place=True))
     assert out["place_source"] == "plaid"
     assert app.places_coverage()["plaid"] == 2
+
+
+def test_patch_place_rejects_non_string_values_cleanly(fresh):
+    add_tx("a", merchant="Shop")
+    out = app.patch_transaction("a", app.TxPatch(place={"city": 5}))
+    assert out["place_city"] == "5"

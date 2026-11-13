@@ -9,7 +9,6 @@ Resolution order for every row the user has not set by hand:
 import json
 import logging
 import re
-from urllib.parse import urlparse
 
 import db
 from places_seed import HQ
@@ -30,12 +29,15 @@ def domain_of(website):
     if not website:
         return None
     w = str(website).strip().lower()
-    if "://" in w:
-        w = urlparse(w).netloc
+    w = re.sub(r"^[a-z][a-z0-9+.-]*:(//)?", "", w).lstrip("/")
     w = w.split("/")[0].split(":")[0]
     if w.startswith("www."):
         w = w[4:]
     return w or None
+
+
+def _s(v):
+    return None if v is None else str(v)
 
 
 def extract(raw):
@@ -46,8 +48,12 @@ def extract(raw):
         return None
     if not isinstance(r, dict):
         return None
-    loc = r.get("location") or {}
+    loc = r.get("location")
+    if not isinstance(loc, dict):
+        return None
     out = {k: loc.get(k) for k in ("address", "city", "region", "postal_code", "country", "lat", "lon", "store_number")}
+    for k in ("address", "city", "region", "postal_code", "country", "store_number"):
+        out[k] = _s(out[k])
     if not (out["city"] or (out["lat"] is not None and out["lon"] is not None)):
         return None
     return out
@@ -76,8 +82,10 @@ def resolve(t, overrides):
     mk = merchant_key(t)
     o = overrides.get(mk) if mk else None
     if o:
-        return {"place_address": o["address"], "place_city": o["city"], "place_region": o["region"], "place_postal": o["postal"],
-                "place_country": o["country"], "place_lat": o["lat"], "place_lon": o["lon"], "place_store": None}, "user"
+        lat = o.get("lat") if o.get("lat") is not None else t.get("place_lat")
+        lon = o.get("lon") if o.get("lon") is not None else t.get("place_lon")
+        return {"place_address": o.get("address"), "place_city": o.get("city"), "place_region": o.get("region"), "place_postal": o.get("postal"),
+                "place_country": o.get("country"), "place_lat": lat, "place_lon": lon, "place_store": None}, "user"
     raw = t.get("raw")
     p = extract(raw)
     if p:
@@ -109,11 +117,15 @@ def fill(transaction_ids=None) -> int:
     overrides = {m["merchant_key"]: m for m in db.q("SELECT * FROM merchant_places")}
     updates = []
     for t in _rows(transaction_ids):
-        vals, source = resolve(t, overrides)
-        before = tuple(t.get(k) for k in FIELDS) + (t.get("place_source"),)
-        after = tuple(vals[k] for k in FIELDS) + (source,)
-        if before != after:
-            updates.append(tuple(vals[k] for k in FIELDS) + (source, t["transaction_id"]))
+        try:
+            vals, source = resolve(t, overrides)
+            before = tuple(t.get(k) for k in FIELDS) + (t.get("place_source"),)
+            after = tuple(vals[k] for k in FIELDS) + (source,)
+            if before != after:
+                updates.append(tuple(vals[k] for k in FIELDS) + (source, t["transaction_id"]))
+        except Exception:
+            log.exception("could not place %s", t["transaction_id"])
+            continue
     if updates:
         db.many(f"UPDATE transactions SET {', '.join(k + '=?' for k in FIELDS)}, place_source=? "
                 "WHERE transaction_id=? AND COALESCE(place_source,'') != 'user'", updates)
@@ -132,8 +144,8 @@ def _merchant_rows(transaction_id):
     key = merchant_key(t)
     if not key:
         return None, [transaction_id]
-    rows = db.q("SELECT transaction_id, merchant_name, name FROM transactions")
-    return key, [r["transaction_id"] for r in rows if merchant_key(r) == key]
+    rows = db.q("SELECT transaction_id FROM transactions WHERE LOWER(TRIM(COALESCE(NULLIF(merchant_name,''), name, ''))) = ?", (key,))
+    return key, [r["transaction_id"] for r in rows]
 
 
 def set_user_place(transaction_id, place: dict):
@@ -141,21 +153,36 @@ def set_user_place(transaction_id, place: dict):
     key, ids = _merchant_rows(transaction_id)
     if not ids:
         return 0
-    vals = {k: (place.get(k) or "").strip() or None for k in ("address", "city", "region", "postal", "country")}
-    lat, lon = place.get("lat"), place.get("lon")
+    vals = {k: str(place.get(k) or "").strip() or None for k in ("address", "city", "region", "postal", "country")}
+    lat, lon = _coord(place.get("lat"), 90), _coord(place.get("lon"), 180)
     if key:
         db.run("""INSERT INTO merchant_places (merchant_key, name, address, city, region, postal, country, lat, lon, kind, updated_at)
                   VALUES (?,?,?,?,?,?,?,?,?,'user', datetime('now'))
                   ON CONFLICT(merchant_key) DO UPDATE SET address=excluded.address, city=excluded.city, region=excluded.region,
                   postal=excluded.postal, country=excluded.country, lat=excluded.lat, lon=excluded.lon, updated_at=datetime('now')""",
                (key, key, vals["address"], vals["city"], vals["region"], vals["postal"], vals["country"], lat, lon))
+        _unlock(ids)
+        fill(ids)
+        return len(ids)
+    # No merchant key: write just this row, keeping any coordinates it already had.
+    db.run("""UPDATE transactions SET place_address=?, place_city=?, place_region=?, place_postal=?, place_country=?,
+              place_lat=COALESCE(?, place_lat), place_lon=COALESCE(?, place_lon), place_store=NULL, place_source='user'
+              WHERE transaction_id=?""", (vals["address"], vals["city"], vals["region"], vals["postal"], vals["country"], lat, lon, transaction_id))
+    return 1
+
+
+def _coord(v, limit):
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if -limit <= f <= limit else None
+
+
+def _unlock(ids):
     for i in range(0, len(ids), 500):
         chunk = ids[i:i + 500]
-        db.run(f"""UPDATE transactions SET place_address=?, place_city=?, place_region=?, place_postal=?, place_country=?,
-                   place_lat=?, place_lon=?, place_store=NULL, place_source='user'
-                   WHERE transaction_id IN ({','.join('?' * len(chunk))})""",
-               (vals["address"], vals["city"], vals["region"], vals["postal"], vals["country"], lat, lon, *chunk))
-    return len(ids)
+        db.run(f"UPDATE transactions SET place_source=NULL WHERE transaction_id IN ({','.join('?' * len(chunk))})", chunk)
 
 
 def clear_user_place(transaction_id):
@@ -163,9 +190,7 @@ def clear_user_place(transaction_id):
     key, ids = _merchant_rows(transaction_id)
     if key:
         db.run("DELETE FROM merchant_places WHERE merchant_key=?", (key,))
-    for i in range(0, len(ids), 500):
-        chunk = ids[i:i + 500]
-        db.run(f"UPDATE transactions SET place_source=NULL WHERE transaction_id IN ({','.join('?' * len(chunk))})", chunk)
+    _unlock(ids)
     return fill(ids)
 
 
@@ -184,6 +209,10 @@ def line(r) -> str:
 def coverage():
     out = {"plaid": 0, "hq": 0, "user": 0, "none": 0, "total": 0}
     for r in db.q("SELECT COALESCE(place_source,'none') AS s, COUNT(*) AS n FROM transactions GROUP BY 1"):
-        out[r["s"] if r["s"] in out else "none"] += r["n"]
+        s = r["s"]
+        if s not in out:
+            log.warning("unrecognized place_source %r", s)
+            s = "none"
+        out[s] += r["n"]
         out["total"] += r["n"]
     return out
