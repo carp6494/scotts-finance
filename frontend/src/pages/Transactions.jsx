@@ -23,6 +23,8 @@ export default function Transactions({ summary, accounts, refreshKey, onChanged 
     return () => { alive = false }
   }, [acct, cat, summary]) // eslint-disable-line
   const t = totals || s
+  const [cov, setCov] = useState(null)
+  useEffect(() => { api.placesCoverage().then(setCov).catch(() => {}) }, [refreshKey, summary]) // eslint-disable-line
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
@@ -41,6 +43,7 @@ export default function Transactions({ summary, accounts, refreshKey, onChanged 
       <div className="card rise" style={{ padding: 18, animationDelay: '.18s' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <h2 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>All transactions</h2>
+          {cov && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Places: {(cov.plaid + cov.user).toLocaleString()} with an address, {cov.hq.toLocaleString()} headquarters, {cov.none.toLocaleString()} unknown</span>}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', fontSize: 13, color: 'var(--muted)' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>Account
               <select value={acct} onChange={(e) => setAcct(e.target.value)} style={sel}>

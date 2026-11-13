@@ -42,6 +42,7 @@ export const api = {
   deleteRule: (id) => req('DELETE', `/api/rules/${id}`),
   previewRule: (body) => req('POST', '/api/rules/preview', body),
   applyRules: () => req('POST', '/api/rules/apply'),
+  placesCoverage: () => req('GET', '/api/places/coverage'),
 }
 
 const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })

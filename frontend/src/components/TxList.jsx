@@ -3,6 +3,7 @@ import { api, money, shortDate, toast } from '../api'
 import { useCategories, categoryLabel } from '../categories'
 import CategoryPicker from './CategoryPicker'
 import Logo from './Logo'
+import PlaceLine from './PlaceLine'
 
 const PAGE = 100
 
@@ -103,6 +104,9 @@ export default function TxList({ accountId, catId, spendingOnly = false, showAcc
                     <CategoryPicker value={t.cat_id} compact={compact} onChange={(id) => setCategory(t, id)} />
                     {showAccount && t.account_name ? <span>{t.account_name}{t.mask ? ' ' + t.mask : ''}</span> : null}
                   </span>
+                  {compact
+                    ? (t.place_city ? <span style={{ display: 'block', marginTop: 2, fontSize: 11, color: 'var(--muted2)' }}>{t.place_source === 'hq' ? '🏢' : '📍'} {t.place_city}{t.place_region ? ', ' + t.place_region : ''}</span> : null)
+                    : <span style={{ display: 'block', marginTop: 2 }}><PlaceLine t={t} onSaved={(r) => { setRows((prev) => prev.map((x) => (x.transaction_id === t.transaction_id ? { ...x, ...r } : x))); load(0, q); onChanged && onChanged() }} /></span>}
                 </span>
                 <span className="num" style={{ fontSize: 14, fontWeight: 600, color: t.display_amount > 0 ? 'var(--pos)' : 'var(--text)' }}>
                   {t.display_amount > 0 ? '+' : ''}{money(t.display_amount)}
