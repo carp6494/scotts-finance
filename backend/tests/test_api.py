@@ -140,3 +140,21 @@ def test_patch_group_and_reset_icon_uses_new_group(fresh):
     c = app.add_category(app.CategoryReq(name="Chew toys", group_name="Pets"))
     out = app.patch_category(c["id"], app.CategoryPatch(group_name="Food & drink", icon=""))
     assert out["icon"] == "🍴"
+
+
+def test_list_has_place_line_and_patch_place(fresh):
+    import json
+    add_tx("a", merchant="Shop"); add_tx("b", merchant="Shop")
+    raw = json.dumps({"location": {"address": "1 Main St", "city": "Springfield", "region": "OK", "postal_code": "62701", "country": "US",
+                                   "lat": 36.15, "lon": -95.99, "store_number": None}})
+    db.run("UPDATE transactions SET raw=? WHERE transaction_id IN ('a','b')", (raw,))
+    import places
+    places.fill()
+    r = app.transactions()["rows"][0]
+    assert r["place_line"] == "1 Main St, Springfield, OK" and r["place_source"] == "plaid"
+    out = app.patch_transaction("a", app.TxPatch(place={"address": "9 Elm", "city": "Riverside", "region": "OK"}))
+    assert out["place_source"] == "user" and out["place_line"] == "9 Elm, Riverside, OK"
+    assert db.one("SELECT place_city FROM transactions WHERE transaction_id='b'")["place_city"] == "Riverside"
+    out = app.patch_transaction("a", app.TxPatch(clear_place=True))
+    assert out["place_source"] == "plaid"
+    assert app.places_coverage()["plaid"] == 2

@@ -25,6 +25,7 @@ import auth  # noqa: E402
 import maintenance  # noqa: E402
 import categories  # noqa: E402
 import rules  # noqa: E402
+import places  # noqa: E402
 from fastapi import Request, Response  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
 
@@ -363,6 +364,7 @@ def import_csv(account_id: str, req: ImportReq):
     after = db.one("SELECT COUNT(*) AS n FROM transactions WHERE account_id=?", (account_id,))["n"]
     try:
         rules.categorize([r[0] for r in out])
+        places.fill([r[0] for r in out])
     except Exception:
         log.exception("categorization after import failed; rows imported but left uncategorized")
     return {"read": len(out), "added": after - before, "duplicates": len(out) - (after - before)}
@@ -486,7 +488,8 @@ def transactions(account_id: str | None = None, q: str | None = None, cat_id: st
     w = " AND ".join(where)
     frm = "FROM transactions t LEFT JOIN accounts a ON a.account_id=t.account_id LEFT JOIN categories c ON c.id=t.cat_id"
     total = db.one(f"SELECT COUNT(*) AS n {frm} WHERE {w}", args)["n"]
-    rows = db.q(f"""SELECT t.transaction_id, t.account_id, t.date, t.amount, t.name, t.merchant_name, t.display_name, t.pending,
+    rows = db.q(f"""SELECT t.transaction_id, t.account_id, t.date, t.amount, t.name, t.merchant_name, t.display_name,
+                    t.place_address, t.place_city, t.place_region, t.place_postal, t.place_country, t.place_lat, t.place_lon, t.place_source, t.pending,
                     t.category, t.category_detail, t.logo_url, t.notes, t.reviewed,
                     t.cat_id, t.cat_source, COALESCE(t.excluded,0) AS excluded, COALESCE(t.is_transfer,0) AS is_transfer,
                     c.name AS cat_name, c.group_name AS cat_group, c.type AS cat_type,
@@ -495,6 +498,7 @@ def transactions(account_id: str | None = None, q: str | None = None, cat_id: st
     for r in rows:
         r["logo"] = logos.merchant_logo(r["merchant_name"] or r["name"], r.pop("logo_url"))
         r["display_amount"] = -(r["amount"] or 0)  # Plaid: positive = money out
+        r["place_line"] = places.line(r)
     return {"total": total, "rows": rows}
 
 
@@ -504,6 +508,8 @@ class TxPatch(BaseModel):
     excluded: bool | None = None
     is_transfer: bool | None = None
     display_name: str | None = None
+    place: dict | None = None
+    clear_place: bool = False
 
 
 @app.patch("/api/transactions/{transaction_id}")
@@ -527,10 +533,18 @@ def patch_transaction(transaction_id: str, req: TxPatch):
         sets.append("display_name=?"); args.append(req.display_name.strip() or None)
     if sets:
         db.run(f"UPDATE transactions SET {', '.join(sets)} WHERE transaction_id=?", args + [transaction_id])
+    if req.clear_place:
+        places.clear_user_place(transaction_id)
+    elif req.place is not None:
+        if not isinstance(req.place, dict) or not any((req.place.get(k) or "").strip() for k in ("address", "city", "region", "postal")):
+            raise HTTPException(400, "Enter at least a city or an address")
+        places.set_user_place(transaction_id, req.place)
     row = db.one("""SELECT t.transaction_id, t.cat_id, t.cat_source, COALESCE(t.excluded,0) AS excluded, COALESCE(t.is_transfer,0) AS is_transfer,
-                           t.display_name, t.notes, c.name AS cat_name, c.group_name AS cat_group, c.type AS cat_type
+                           t.display_name, t.notes, c.name AS cat_name, c.group_name AS cat_group, c.type AS cat_type,
+                           t.place_address, t.place_city, t.place_region, t.place_postal, t.place_country, t.place_lat, t.place_lon, t.place_source
                     FROM transactions t LEFT JOIN categories c ON c.id=t.cat_id WHERE t.transaction_id=?""", (transaction_id,))
     row["similar"] = similar
+    row["place_line"] = places.line(row)
     return row
 
 
@@ -663,6 +677,11 @@ def delete_rule(rule_id: int):
     return {"ok": True}
 
 
+@app.get("/api/places/coverage")
+def places_coverage():
+    return places.coverage()
+
+
 # ---------- summary ----------
 
 @app.get("/api/summary")
@@ -728,6 +747,9 @@ def _startup():
         if missing:
             n = rules.categorize(missing)
             log.info("categorized %s transactions that had no category", n)
+        missing_places = places.missing_ids()
+        if missing_places:
+            log.info("placed %s transactions", places.fill(missing_places))
     except Exception:
         log.exception("startup categorization failed; continuing without it")
     threading.Timer(5, _auto_sync).start()
