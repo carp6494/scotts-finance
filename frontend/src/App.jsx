@@ -8,6 +8,7 @@ import Transactions from './pages/Transactions'
 import Lock from './components/Lock'
 import Debt from './pages/Debt'
 import Rules from './pages/Rules'
+import Settings from './pages/Settings'
 
 function useTheme() {
   const [mode, setMode] = useState(() => { try { return localStorage.getItem('theme') || 'system' } catch { return 'system' } })
@@ -26,6 +27,8 @@ function useTheme() {
 }
 
 const PAGES = [['dashboard', 'Dashboard'], ['transactions', 'Transactions'], ['rules', 'Rules'], ['debt', 'Debt payoff']]
+
+const TITLES = { ...Object.fromEntries(PAGES), settings: 'Settings' }
 
 export default function App() {
   const [authed, setAuthed] = useState(null)
@@ -95,7 +98,11 @@ function Main({ onLogout }) {
             {l}
           </button>
         ))}
-        <button type="button" onClick={onLogout} style={{ marginTop: 'auto', textAlign: 'left', padding: '10px 12px', borderRadius: 8, border: 0, background: 'transparent', color: 'var(--text2)', fontSize: 14 }}>Sign out</button>
+        <button type="button" onClick={() => setPage('settings')} aria-current={page === 'settings' ? 'page' : undefined}
+          style={{ marginTop: 'auto', textAlign: 'left', padding: '10px 12px', borderRadius: 8, border: 0, background: page === 'settings' ? 'var(--active)' : 'transparent', color: page === 'settings' ? 'var(--text)' : 'var(--text2)', fontWeight: page === 'settings' ? 600 : 400, fontSize: 14 }}>
+          Settings
+        </button>
+        <button type="button" onClick={onLogout} style={{ textAlign: 'left', padding: '10px 12px', borderRadius: 8, border: 0, background: 'transparent', color: 'var(--text2)', fontSize: 14 }}>Sign out</button>
         <div style={{ fontSize: 12, color: 'var(--muted)', padding: '0 12px' }}>
           Plaid: {status ? (status.configured ? status.env : 'not set up') : '...'}
         </div>
@@ -103,16 +110,8 @@ function Main({ onLogout }) {
 
       <main style={{ flex: '999 1 560px', minWidth: 0, padding: '28px 32px 48px', display: 'flex', flexDirection: 'column', gap: 20 }}>
         <header style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-          <h1 style={{ margin: 0, fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em' }}>{PAGES.find((p) => p[0] === page)[1]}</h1>
+          <h1 style={{ margin: 0, fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em' }}>{TITLES[page]}</h1>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
-            <div role="group" aria-label="Theme" style={{ display: 'flex', border: '1px solid var(--line)', borderRadius: 8, overflow: 'hidden', height: 40, background: 'var(--card)' }}>
-              {['light', 'dark', 'system'].map((m) => (
-                <button key={m} type="button" aria-pressed={theme === m} onClick={() => setTheme(m)}
-                  style={{ padding: '0 12px', border: 0, background: theme === m ? 'var(--accent)' : 'transparent', color: theme === m ? '#fff' : 'var(--text2)', fontSize: 13, fontWeight: 500 }}>
-                  {m[0].toUpperCase() + m.slice(1)}
-                </button>
-              ))}
-            </div>
             <button type="button" className="press" onClick={sync} disabled={syncing || !status?.items?.length}
               style={{ height: 40, padding: '0 14px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--text)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8, opacity: status?.items?.length ? 1 : 0.5 }}>
               <svg className={syncing ? 'spin' : ''} width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8" /><path d="M21 3v5h-5" /></svg>
@@ -140,6 +139,7 @@ function Main({ onLogout }) {
             {page === 'transactions' && <Transactions summary={summary} accounts={accounts} refreshKey={refreshKey} onChanged={refreshTotals} />}
             {page === 'rules' && <Rules accounts={accounts} />}
             {page === 'debt' && <Debt />}
+            {page === 'settings' && <Settings theme={theme} setTheme={setTheme} />}
           </motion.div>
         </AnimatePresence>
       </main>

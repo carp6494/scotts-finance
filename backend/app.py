@@ -74,8 +74,12 @@ def auth_verify(req: CodeReq, response: Response):
     token = auth.verify(req.code)
     if not token:
         raise HTTPException(401, "That code didn't match. Try the newest code in your authenticator app.")
-    response.set_cookie(auth.COOKIE, token, httponly=True, samesite="strict", max_age=auth.SESSION_HOURS * 3600)
+    _set_session_cookie(response, token)
     return {"ok": True}
+
+
+def _set_session_cookie(response: Response, token: str):
+    response.set_cookie(auth.COOKIE, token, httponly=True, samesite="strict", max_age=auth.session_hours() * 3600)
 
 
 @app.post("/api/auth/logout")
@@ -83,6 +87,27 @@ def auth_logout(request: Request, response: Response):
     auth.logout(request.cookies.get(auth.COOKIE))
     response.delete_cookie(auth.COOKIE)
     return {"ok": True}
+
+
+class SessionReq(BaseModel):
+    hours: int
+
+
+# Not under /api/auth/, so the sign-in check above covers both routes.
+@app.get("/api/settings/session")
+def get_session_setting():
+    return {"hours": auth.session_hours(), "choices": list(auth.SESSION_CHOICES)}
+
+
+@app.put("/api/settings/session")
+def put_session_setting(req: SessionReq, request: Request, response: Response):
+    token = request.cookies.get(auth.COOKIE)
+    try:
+        auth.set_session_hours(req.hours, token)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    _set_session_cookie(response, token)
+    return get_session_setting()
 
 CASH_TYPES = ("depository",)
 DEBT_TYPES = ("credit", "loan")

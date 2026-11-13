@@ -15,6 +15,8 @@ export const api = {
   authSetup: () => req('POST', '/api/auth/setup'),
   authVerify: (code) => req('POST', '/api/auth/verify', { code }),
   logout: () => req('POST', '/api/auth/logout'),
+  sessionSetting: () => req('GET', '/api/settings/session'),
+  setSessionSetting: (hours) => req('PUT', '/api/settings/session', { hours }),
   status: () => req('GET', '/api/status'),
   summary: (p = {}) => { const qs = new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== '')).toString(); return req('GET', '/api/summary' + (qs ? '?' + qs : '')) },
   accounts: () => req('GET', '/api/accounts'),

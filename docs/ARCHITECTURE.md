@@ -48,8 +48,9 @@ The DB runs in WAL mode. Migrations are additive `ALTER TABLE ... ADD COLUMN` st
 |---|---|---|
 | GET | /auth/state | enrolled? signed in? |
 | POST | /auth/setup | new TOTP secret, returns QR SVG (only before enrollment is confirmed) |
-| POST | /auth/verify | 6-digit code, sets httponly `sf_session` cookie (12 h) |
-| POST | /auth/logout | |
+| POST | /auth/verify | 6-digit code, sets httponly `sf_session` cookie that lasts for the session setting |
+| POST | /auth/logout | deletes the session row and the cookie |
+| GET / PUT | /settings/session | {hours} for "Stay signed in for": 12, 24, 168 or 720 |
 | GET | /status | Plaid configured, env, items + status |
 | POST | /link/token | Link token (transactions, optional liabilities/investments, 730 days); pass item_id for update mode |
 | POST | /link/exchange | public token -> encrypted access token, first sync |
@@ -71,7 +72,7 @@ The DB runs in WAL mode. Migrations are additive `ALTER TABLE ... ADD COLUMN` st
 
 ## Flows
 
-- **Sign-in:** First run shows a QR code, and Scott scans it into Microsoft Authenticator. Sessions are held in memory, so restarting the app means signing in again.
+- **Sign-in:** First run shows a QR code, and Scott scans it into Microsoft Authenticator. Sessions live in the `sessions` table as a hash of the cookie token, so a restart keeps Scott signed in. A session lasts for the "Stay signed in for" setting on the Settings page: 12 hours by default, 30 days at most. Sign out ends it at once.
 - **Plaid:** Link opens in the browser and the public token is exchanged. The access token is encrypted and stored. `transactions_sync` runs with a cursor and retries on `TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION`. After that, accounts, liabilities and holdings are pulled and the institution logo is saved once. When Plaid reports `ITEM_LOGIN_REQUIRED`, a reconnect banner opens Link in update mode.
 - **Timers:** Auto sync runs every 6 hours (started at startup). Daily maintenance backs up to `backups/` (keeping 30) and purges transactions older than 7 years.
 - **Logos:** For tickers, `assets/ticker-logos/<T>.png` is copied once into `data/logos/tickers/`, using the merchant-to-ticker map in `logos.py`. For merchants, the Plaid `logo_url` is downloaded once in the background. Institutions use the Plaid logo saved once. Special cases are Discover (`/brand/discover-card.png`) and the Lowe's, Best Buy and Capital One tickers. If none of these exist, the UI shows a letter tile.

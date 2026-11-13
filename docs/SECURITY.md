@@ -5,7 +5,8 @@ These controls back the security attestations Scott gave Plaid. The full policy 
 | Control | Where |
 |---|---|
 | App reachable only from this PC (127.0.0.1) | `app.py` uvicorn host |
-| Sign-in required (TOTP, Microsoft Authenticator); 12 h httponly session cookie | `auth.py`, middleware in `app.py` |
+| Sign-in required (TOTP, Microsoft Authenticator); httponly, same-site session cookie | `auth.py`, middleware in `app.py` |
+| Sessions last 12 hours by default and 30 days at most; only a SHA-256 hash of the token is stored | `auth.py`, `PUT /api/settings/session` |
 | Plaid access tokens encrypted at rest (Fernet); key in Windows Credential Manager | `secure.py` |
 | Plaid keys only in `.env`, gitignored, never logged | `.env`, `.gitignore` |
 | TLS for all Plaid traffic (plaid-python over HTTPS) | `plaid_sync.py` |

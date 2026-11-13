@@ -37,7 +37,7 @@ I built it for myself. You can run it too, but you need your own Plaid developer
 2. Double-click `start.bat`. On the first run it creates `.env` and opens it in Notepad.
 3. Paste your client ID and secret into `.env`. Save and close.
 4. Double-click `start.bat` again. It builds the web pages, starts the app, and opens your browser.
-5. Scan the QR code with an authenticator app and enter the six-digit code. You will enter a code each time you open the app.
+5. Scan the QR code with an authenticator app and enter the six-digit code. The app asks for a new code every 12 hours. To change that, click Settings in the left sidebar and pick a longer time under "Stay signed in for". The longest is 30 days.
 6. Click Connect account and sign in to each bank.
 7. Click Add home to enter your home value and link your mortgage.
 
