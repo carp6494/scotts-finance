@@ -405,12 +405,14 @@ class CategoryReq(BaseModel):
     name: str
     group_name: str
     type: str = "expense"
+    icon: str | None = None
 
 
 class CategoryPatch(BaseModel):
     name: str | None = None
     group_name: str | None = None
     hidden: bool | None = None
+    icon: str | None = None
 
 
 @app.get("/api/categories")
@@ -424,7 +426,7 @@ def add_category(req: CategoryReq):
         raise HTTPException(400, "Name and group are required")
     if req.type not in CAT_TYPES:
         raise HTTPException(400, "Type must be income, expense, or transfer")
-    return categories.add_custom(req.name, req.group_name, req.type)
+    return categories.add_custom(req.name, req.group_name, req.type, req.icon)
 
 
 @app.patch("/api/categories/{cat_id}")
@@ -444,6 +446,14 @@ def patch_category(cat_id: str, req: CategoryPatch):
         sets.append("group_name=?"); args.append(req.group_name.strip())
     if req.hidden is not None:
         sets.append("hidden=?"); args.append(1 if req.hidden else 0)
+    if req.icon is not None:
+        icon = req.icon.strip()
+        if len(icon) > 16:
+            raise HTTPException(400, "Icon is too long")
+        if not icon:
+            row = categories.get(cat_id)
+            icon = categories.default_icon(cat_id, row["group_name"])
+        sets.append("icon=?"); args.append(icon)
     if sets:
         db.run(f"UPDATE categories SET {', '.join(sets)} WHERE id=?", args + [cat_id])
     return categories.get(cat_id)
@@ -649,17 +659,21 @@ def delete_rule(rule_id: int):
 # ---------- summary ----------
 
 @app.get("/api/summary")
-def summary():
+def summary(account_id: str | None = None, cat_id: str | None = None):
     rows = db.q("SELECT * FROM accounts WHERE hidden=0")
     cash = sum(a["current"] or 0 for a in rows if a["type"] in CASH_TYPES)
     debt = sum(a["current"] or 0 for a in rows if a["type"] in DEBT_TYPES)
     invest = sum(a["current"] or 0 for a in rows if a["type"] == "investment")
     prop = sum(a["current"] or 0 for a in rows if a["type"] == "property")
     month = date.today().strftime("%Y-%m")
-    m = db.one("""SELECT COALESCE(SUM(CASE WHEN t.amount>0 AND COALESCE(c.type,'expense')='expense' THEN t.amount END),0) AS spent,
-                         COALESCE(SUM(CASE WHEN t.amount<0 AND c.type='income' THEN -t.amount END),0) AS income
-                  FROM transactions t LEFT JOIN categories c ON c.id=t.cat_id
-                  WHERE substr(t.date,1,7)=? AND t.pending=0 AND COALESCE(t.excluded,0)=0 AND COALESCE(t.is_transfer,0)=0""", (month,))
+    where, args = ["substr(t.date,1,7)=?", "t.pending=0", "COALESCE(t.excluded,0)=0", "COALESCE(t.is_transfer,0)=0"], [month]
+    if account_id:
+        where.append("t.account_id=?"); args.append(account_id)
+    if cat_id:
+        where.append("t.cat_id=?"); args.append(cat_id)
+    m = db.one(f"""SELECT COALESCE(SUM(CASE WHEN t.amount>0 AND COALESCE(c.type,'expense')='expense' THEN t.amount END),0) AS spent,
+                          COALESCE(SUM(CASE WHEN t.amount<0 AND c.type='income' THEN -t.amount END),0) AS income
+                   FROM transactions t LEFT JOIN categories c ON c.id=t.cat_id WHERE {' AND '.join(where)}""", args)
     return {"net_worth": cash + invest + prop - debt, "cash": cash, "debt": debt, "investments": invest,
             "property": prop, "spent_month": m["spent"], "income_month": m["income"],
             "tx_count": db.one("SELECT COUNT(*) AS n FROM transactions")["n"]}

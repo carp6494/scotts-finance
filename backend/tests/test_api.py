@@ -110,3 +110,21 @@ def test_summary_ignores_transfers_and_excluded(fresh):
     s = app.summary()
     assert s["spent_month"] == 20.0  # a only: b excluded, c transfer type, d is money in
     assert s["income_month"] == 1000.0
+
+
+def test_patch_category_icon(fresh):
+    assert app.patch_category("FOOD_AND_DRINK_COFFEE", app.CategoryPatch(icon=" 🫖 "))["icon"] == "🫖"
+    assert app.patch_category("FOOD_AND_DRINK_COFFEE", app.CategoryPatch(icon=""))["icon"] == "☕"
+    with pytest.raises(HTTPException) as e:
+        app.patch_category("FOOD_AND_DRINK_COFFEE", app.CategoryPatch(icon="x" * 17))
+    assert e.value.status_code == 400
+
+
+def test_summary_filters(fresh):
+    today = __import__("datetime").date.today().isoformat()
+    add_tx("a", account="acc-1", amount=20, cat_id="FOOD_AND_DRINK_FAST_FOOD", source="plaid", date=today)
+    add_tx("b", account="acc-2", amount=30, cat_id="FOOD_AND_DRINK_COFFEE", source="plaid", date=today)
+    assert app.summary()["spent_month"] == 50.0
+    assert app.summary(cat_id="FOOD_AND_DRINK_COFFEE")["spent_month"] == 30.0
+    assert app.summary(account_id="acc-1")["spent_month"] == 20.0
+    assert app.summary(account_id="acc-1", cat_id="FOOD_AND_DRINK_COFFEE")["spent_month"] == 0.0

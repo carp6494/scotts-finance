@@ -140,6 +140,7 @@ _ADDED_COLUMNS = (
     ("transactions", "excluded INTEGER DEFAULT 0"),
     ("transactions", "is_transfer INTEGER DEFAULT 0"),
     ("transactions", "display_name TEXT"),
+    ("categories", "icon TEXT"),
 )
 for _table, _col in _ADDED_COLUMNS:
     try:

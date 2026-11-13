@@ -63,6 +63,74 @@ NAME_OVERRIDES = {
     "OTHER_OTHER": "Other",
 }
 
+GROUP_ICONS = {
+    "INCOME": "💰", "TRANSFER_IN": "📥", "TRANSFER_OUT": "📤", "LOAN_PAYMENTS": "💸", "BANK_FEES": "🏦",
+    "ENTERTAINMENT": "🎭", "FOOD_AND_DRINK": "🍴", "GENERAL_MERCHANDISE": "🛍️", "HOME_IMPROVEMENT": "🏡",
+    "MEDICAL": "⚕️", "PERSONAL_CARE": "🧴", "GENERAL_SERVICES": "🧰", "GOVERNMENT_AND_NON_PROFIT": "🏛️",
+    "TRANSPORTATION": "🚗", "TRAVEL": "🧳", "RENT_AND_UTILITIES": "🔌", "OTHER": "❓",
+}
+GROUP_ICON_BY_NAME = {GROUPS[p][0]: GROUP_ICONS[p] for p in GROUPS}
+DEFAULT_ICON = "🏷️"
+UNCAT_ICON = "❔"
+
+ICONS = {
+    "INCOME_DIVIDENDS": "💹", "INCOME_INTEREST_EARNED": "🏦", "INCOME_RETIREMENT_PENSION": "🧓", "INCOME_TAX_REFUND": "🧾",
+    "INCOME_UNEMPLOYMENT": "📄", "INCOME_WAGES": "💵", "INCOME_OTHER_INCOME": "💰",
+    "TRANSFER_IN_CASH_ADVANCES_AND_LOANS": "💳", "TRANSFER_IN_DEPOSIT": "📥", "TRANSFER_IN_INVESTMENT_AND_RETIREMENT_FUNDS": "📈",
+    "TRANSFER_IN_SAVINGS": "🐷", "TRANSFER_IN_ACCOUNT_TRANSFER": "🔁", "TRANSFER_IN_OTHER_TRANSFER_IN": "➡️",
+    "TRANSFER_OUT_INVESTMENT_AND_RETIREMENT_FUNDS": "📈", "TRANSFER_OUT_SAVINGS": "🐷", "TRANSFER_OUT_WITHDRAWAL": "🏧",
+    "TRANSFER_OUT_ACCOUNT_TRANSFER": "🔁", "TRANSFER_OUT_OTHER_TRANSFER_OUT": "⬅️",
+    "LOAN_PAYMENTS_CAR_PAYMENT": "🚗", "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT": "💳", "LOAN_PAYMENTS_PERSONAL_LOAN_PAYMENT": "🤝",
+    "LOAN_PAYMENTS_MORTGAGE_PAYMENT": "🏠", "LOAN_PAYMENTS_STUDENT_LOAN_PAYMENT": "🎓", "LOAN_PAYMENTS_OTHER_PAYMENT": "💸",
+    "BANK_FEES_ATM_FEES": "🏧", "BANK_FEES_FOREIGN_TRANSACTION_FEES": "🌍", "BANK_FEES_INSUFFICIENT_FUNDS": "⚠️",
+    "BANK_FEES_INTEREST_CHARGE": "📉", "BANK_FEES_OVERDRAFT_FEES": "⚠️", "BANK_FEES_OTHER_BANK_FEES": "🏦",
+    "ENTERTAINMENT_CASINOS_AND_GAMBLING": "🎰", "ENTERTAINMENT_MUSIC_AND_AUDIO": "🎵",
+    "ENTERTAINMENT_SPORTING_EVENTS_AMUSEMENT_PARKS_AND_MUSEUMS": "🎟️", "ENTERTAINMENT_TV_AND_MOVIES": "🎬",
+    "ENTERTAINMENT_VIDEO_GAMES": "🎮", "ENTERTAINMENT_OTHER_ENTERTAINMENT": "🎭",
+    "FOOD_AND_DRINK_BEER_WINE_AND_LIQUOR": "🍺", "FOOD_AND_DRINK_COFFEE": "☕", "FOOD_AND_DRINK_FAST_FOOD": "🍔",
+    "FOOD_AND_DRINK_GROCERIES": "🛒", "FOOD_AND_DRINK_RESTAURANT": "🍽️", "FOOD_AND_DRINK_VENDING_MACHINES": "🥤",
+    "FOOD_AND_DRINK_OTHER_FOOD_AND_DRINK": "🍴",
+    "GENERAL_MERCHANDISE_BOOKSTORES_AND_NEWSSTANDS": "📚", "GENERAL_MERCHANDISE_CLOTHING_AND_ACCESSORIES": "👕",
+    "GENERAL_MERCHANDISE_CONVENIENCE_STORES": "🏪", "GENERAL_MERCHANDISE_DEPARTMENT_STORES": "🏬",
+    "GENERAL_MERCHANDISE_DISCOUNT_STORES": "🏷️", "GENERAL_MERCHANDISE_ELECTRONICS": "🔌",
+    "GENERAL_MERCHANDISE_GIFTS_AND_NOVELTIES": "🎁", "GENERAL_MERCHANDISE_OFFICE_SUPPLIES": "📎",
+    "GENERAL_MERCHANDISE_ONLINE_MARKETPLACES": "📦", "GENERAL_MERCHANDISE_PET_SUPPLIES": "🐾",
+    "GENERAL_MERCHANDISE_SPORTING_GOODS": "⚽", "GENERAL_MERCHANDISE_SUPERSTORES": "🛍️",
+    "GENERAL_MERCHANDISE_TOBACCO_AND_VAPE": "🚬", "GENERAL_MERCHANDISE_OTHER_GENERAL_MERCHANDISE": "🛍️",
+    "HOME_IMPROVEMENT_FURNITURE": "🛋️", "HOME_IMPROVEMENT_HARDWARE": "🔧", "HOME_IMPROVEMENT_REPAIR_AND_MAINTENANCE": "🛠️",
+    "HOME_IMPROVEMENT_SECURITY": "🔒", "HOME_IMPROVEMENT_OTHER_HOME_IMPROVEMENT": "🏡",
+    "MEDICAL_DENTAL_CARE": "🦷", "MEDICAL_EYE_CARE": "👓", "MEDICAL_NURSING_CARE": "🩺",
+    "MEDICAL_PHARMACIES_AND_SUPPLEMENTS": "💊", "MEDICAL_PRIMARY_CARE": "🏥", "MEDICAL_VETERINARY_SERVICES": "🐶",
+    "MEDICAL_OTHER_MEDICAL": "⚕️",
+    "PERSONAL_CARE_GYMS_AND_FITNESS_CENTERS": "🏋️", "PERSONAL_CARE_HAIR_AND_BEAUTY": "💇",
+    "PERSONAL_CARE_LAUNDRY_AND_DRY_CLEANING": "🧺", "PERSONAL_CARE_OTHER_PERSONAL_CARE": "🧴",
+    "GENERAL_SERVICES_ACCOUNTING_AND_FINANCIAL_PLANNING": "🧮", "GENERAL_SERVICES_AUTOMOTIVE": "🚘",
+    "GENERAL_SERVICES_CHILDCARE": "🧒", "GENERAL_SERVICES_CONSULTING_AND_LEGAL": "⚖️", "GENERAL_SERVICES_EDUCATION": "🎓",
+    "GENERAL_SERVICES_INSURANCE": "🛡️", "GENERAL_SERVICES_POSTAGE_AND_SHIPPING": "📮", "GENERAL_SERVICES_STORAGE": "📦",
+    "GENERAL_SERVICES_OTHER_GENERAL_SERVICES": "🧰",
+    "GOVERNMENT_AND_NON_PROFIT_DONATIONS": "❤️", "GOVERNMENT_AND_NON_PROFIT_GOVERNMENT_DEPARTMENTS_AND_AGENCIES": "🏛️",
+    "GOVERNMENT_AND_NON_PROFIT_TAX_PAYMENT": "🧾", "GOVERNMENT_AND_NON_PROFIT_OTHER_GOVERNMENT_AND_NON_PROFIT": "🏛️",
+    "TRANSPORTATION_BIKES_AND_SCOOTERS": "🚲", "TRANSPORTATION_GAS": "⛽", "TRANSPORTATION_PARKING": "🅿️",
+    "TRANSPORTATION_PUBLIC_TRANSIT": "🚌", "TRANSPORTATION_TAXIS_AND_RIDE_SHARES": "🚕", "TRANSPORTATION_TOLLS": "🛣️",
+    "TRANSPORTATION_OTHER_TRANSPORTATION": "🚗",
+    "TRAVEL_FLIGHTS": "✈️", "TRAVEL_LODGING": "🏨", "TRAVEL_RENTAL_CARS": "🚙", "TRAVEL_OTHER_TRAVEL": "🧳",
+    "RENT_AND_UTILITIES_GAS_AND_ELECTRICITY": "💡", "RENT_AND_UTILITIES_INTERNET_AND_CABLE": "📶", "RENT_AND_UTILITIES_RENT": "🏠",
+    "RENT_AND_UTILITIES_SEWAGE_AND_WASTE_MANAGEMENT": "🗑️", "RENT_AND_UTILITIES_TELEPHONE": "📱", "RENT_AND_UTILITIES_WATER": "💧",
+    "RENT_AND_UTILITIES_OTHER_UTILITIES": "🔌",
+    "OTHER_OTHER": "❓",
+    UNCAT: UNCAT_ICON,
+}
+
+
+def default_icon(code: str, group_name: str | None = None) -> str:
+    """The icon a category gets when none was chosen: its own, else its group's, else the generic tag."""
+    if code in ICONS:
+        return ICONS[code]
+    if code.startswith("custom-"):
+        return GROUP_ICON_BY_NAME.get(group_name or "", DEFAULT_ICON)
+    return GROUP_ICONS.get(primary_of(code), DEFAULT_ICON)
+
+
 _PRIMARIES = sorted(GROUPS, key=len, reverse=True)  # longest first so FOOD_AND_DRINK beats OTHER
 
 
@@ -92,9 +160,12 @@ def seed():
         group, typ = GROUPS[p]
         for i, s in enumerate(suffixes):
             code = f"{p}_{s}"
-            rows.append((code, group, readable(code), typ, i))
-    rows.append((UNCAT, "Uncategorized", "Uncategorized", "expense", 0))
-    db.many("INSERT OR IGNORE INTO categories (id, group_name, name, type, sort) VALUES (?,?,?,?,?)", rows)
+            rows.append((code, group, readable(code), typ, i, default_icon(code)))
+    rows.append((UNCAT, "Uncategorized", "Uncategorized", "expense", 0, UNCAT_ICON))
+    db.many("INSERT OR IGNORE INTO categories (id, group_name, name, type, sort, icon) VALUES (?,?,?,?,?,?)", rows)
+    # Fill icons for rows that predate the column or were inserted by ensure(); never overwrite a chosen icon.
+    for r in db.q("SELECT id, group_name FROM categories WHERE icon IS NULL OR icon=''"):
+        db.run("UPDATE categories SET icon=? WHERE id=?", (default_icon(r["id"], r["group_name"]), r["id"]))
 
 
 def ensure(code):
@@ -104,7 +175,8 @@ def ensure(code):
     if db.one("SELECT 1 FROM categories WHERE id=?", (code,)):
         return code
     group, typ = GROUPS.get(primary_of(code), ("Other", "expense"))
-    db.run("INSERT OR IGNORE INTO categories (id, group_name, name, type, sort) VALUES (?,?,?,?,999)", (code, group, readable(code), typ))
+    db.run("INSERT OR IGNORE INTO categories (id, group_name, name, type, sort, icon) VALUES (?,?,?,?,999,?)",
+           (code, group, readable(code), typ, default_icon(code)))
     return code
 
 
@@ -113,18 +185,20 @@ def get(cat_id):
 
 
 def grouped():
-    """[{group_name, categories: [{id, name, type, hidden, custom}]}] in display order."""
+    """[{group_name, categories: [{id, name, type, hidden, custom, icon}]}] in display order."""
     order = {g: i for i, g in enumerate(v[0] for v in GROUPS.values())}
-    rows = db.q("SELECT id, group_name, name, type, hidden, custom FROM categories ORDER BY sort, name")
+    rows = db.q("SELECT id, group_name, name, type, hidden, custom, icon FROM categories ORDER BY sort, name")
     groups = {}
     for r in rows:
-        groups.setdefault(r["group_name"], []).append({k: r[k] for k in ("id", "name", "type", "hidden", "custom")})
+        groups.setdefault(r["group_name"], []).append({k: r[k] for k in ("id", "name", "type", "hidden", "custom", "icon")})
     keys = sorted(groups, key=lambda g: (g == "Uncategorized", order.get(g, 500), g))
     return [{"group_name": g, "categories": groups[g]} for g in keys]
 
 
-def add_custom(name: str, group_name: str, typ: str):
+def add_custom(name: str, group_name: str, typ: str, icon: str | None = None):
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "category"
     cat_id = f"custom-{slug}-{uuid.uuid4().hex[:4]}"
-    db.run("INSERT INTO categories (id, group_name, name, type, custom, sort) VALUES (?,?,?,?,1,500)", (cat_id, group_name.strip(), name.strip(), typ))
+    icon = (icon or "").strip() or default_icon(cat_id, group_name.strip())
+    db.run("INSERT INTO categories (id, group_name, name, type, custom, sort, icon) VALUES (?,?,?,?,1,500,?)",
+           (cat_id, group_name.strip(), name.strip(), typ, icon))
     return get(cat_id)

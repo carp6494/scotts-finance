@@ -52,7 +52,7 @@ def test_grouped_structure(fresh):
     assert "Income" in names and "Food & drink" in names
     food = next(x for x in g if x["group_name"] == "Food & drink")
     assert any(c["id"] == "FOOD_AND_DRINK_GROCERIES" for c in food["categories"])
-    assert set(food["categories"][0].keys()) == {"id", "name", "type", "hidden", "custom"}
+    assert set(food["categories"][0].keys()) == {"id", "name", "type", "hidden", "custom", "icon"}
 
 
 def test_add_custom(fresh):
@@ -62,3 +62,35 @@ def test_add_custom(fresh):
     assert db.one("SELECT * FROM categories WHERE id=?", (c["id"],))["group_name"] == "Pets"
     again = categories.add_custom("Dog stuff", "Pets", "expense")
     assert again["id"] != c["id"]
+
+
+def test_seed_assigns_icons(fresh):
+    assert db.one("SELECT icon FROM categories WHERE id='FOOD_AND_DRINK_FAST_FOOD'")["icon"] == "🍔"
+    assert db.one("SELECT icon FROM categories WHERE id='UNCATEGORIZED'")["icon"] == "❔"
+    assert db.one("SELECT COUNT(*) AS n FROM categories WHERE icon IS NULL OR icon=''")["n"] == 0
+
+
+def test_seed_keeps_edited_icon(fresh):
+    db.run("UPDATE categories SET icon='🌮' WHERE id='FOOD_AND_DRINK_FAST_FOOD'")
+    categories.seed()
+    assert db.one("SELECT icon FROM categories WHERE id='FOOD_AND_DRINK_FAST_FOOD'")["icon"] == "🌮"
+
+
+def test_custom_inherits_group_icon(fresh):
+    c = categories.add_custom("Dog stuff", "Food & drink", "expense")
+    assert c["icon"] == "🍴"
+    d = categories.add_custom("Mystery", "Nowhere", "expense")
+    assert d["icon"] == "🏷️"
+    e = categories.add_custom("Bones", "Pets", "expense", icon="🦴")
+    assert e["icon"] == "🦴"
+
+
+def test_ensure_gives_group_icon(fresh):
+    categories.ensure("TRAVEL_SOMETHING_NEW")
+    assert db.one("SELECT icon FROM categories WHERE id='TRAVEL_SOMETHING_NEW'")["icon"] == "🧳"
+
+
+def test_grouped_includes_icon(fresh):
+    g = categories.grouped()
+    food = next(x for x in g if x["group_name"] == "Food & drink")
+    assert "icon" in food["categories"][0]
