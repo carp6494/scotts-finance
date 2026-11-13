@@ -81,7 +81,7 @@ HQ = {
     "sonicdrivein.com": ("Sonic", "Oklahoma City", "OK", "US", 35.4676, -97.5164),
     "whataburger.com": ("Whataburger", "San Antonio", "TX", "US", 29.4241, -98.4936),
     "braums.com": ("Braum's", "Oklahoma City", "OK", "US", 35.4676, -97.5164),
-    "quiktrip.com": ("QuikTrip", "Springfield", "OK", "US", 36.1540, -95.9928),
+    "quiktrip.com": ("QuikTrip", "Tulsa", "OK", "US", 36.1540, -95.9928),
     "maverik.com": ("Maverik", "Salt Lake City", "UT", "US", 40.7608, -111.8910),
     "wincofoods.com": ("WinCo Foods", "Boise", "ID", "US", 43.6150, -116.2023),
     "kroger.com": ("Kroger", "Cincinnati", "OH", "US", 39.1031, -84.5120),
