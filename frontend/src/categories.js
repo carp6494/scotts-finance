@@ -30,7 +30,9 @@ export function useCategories() {
 
 export const flatCategories = (groups) => groups.flatMap((g) => g.categories.map((c) => ({ ...c, group_name: g.group_name })))
 
+export const withIcon = (c) => (c?.icon ? `${c.icon} ` : '')
+
 export const categoryLabel = (groups, id) => {
   const c = flatCategories(groups).find((x) => x.id === id)
-  return c ? `${c.group_name} · ${c.name}` : 'Uncategorized'
+  return c ? `${withIcon(c)}${c.group_name} · ${c.name}` : '❔ Uncategorized'
 }

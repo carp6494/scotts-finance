@@ -16,7 +16,7 @@ export const api = {
   authVerify: (code) => req('POST', '/api/auth/verify', { code }),
   logout: () => req('POST', '/api/auth/logout'),
   status: () => req('GET', '/api/status'),
-  summary: () => req('GET', '/api/summary'),
+  summary: (p = {}) => req('GET', '/api/summary?' + new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== ''))),
   accounts: () => req('GET', '/api/accounts'),
   account: (id) => req('GET', `/api/accounts/${encodeURIComponent(id)}`),
   transactions: (p = {}) => req('GET', '/api/transactions?' + new URLSearchParams(Object.entries(p).filter(([, v]) => v !== undefined && v !== ''))),

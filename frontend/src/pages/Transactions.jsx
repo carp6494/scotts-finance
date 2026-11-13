@@ -1,6 +1,6 @@
-import { useState } from 'react'
-import { money } from '../api'
-import { useCategories } from '../categories'
+import { useEffect, useState } from 'react'
+import { api, money } from '../api'
+import { useCategories, withIcon } from '../categories'
 import Odometer from '../components/Odometer'
 import TxList from '../components/TxList'
 
@@ -13,14 +13,23 @@ export default function Transactions({ summary, accounts, refreshKey, onChanged 
   const groups = useCategories()
   const s = summary || {}
   const linked = accounts.filter((a) => !a.manual)
+  const [totals, setTotals] = useState(null)
+  const filtered = Boolean(acct || cat)
+  useEffect(() => {
+    if (!filtered) { setTotals(null); return }
+    let alive = true
+    api.summary({ account_id: acct || undefined, cat_id: cat || undefined }).then((r) => { if (alive) setTotals(r) }).catch(() => {})
+    return () => { alive = false }
+  }, [acct, cat, summary]) // eslint-disable-line
+  const t = totals || s
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
-        {[['Spent this month', s.spent_month], ['Income this month', s.income_month]].map(([l, v], i) => (
+        {[['Spent this month', t.spent_month], ['Income this month', t.income_month]].map(([l, v], i) => (
           <div key={l} className="card rise" style={{ padding: '14px 18px', animationDelay: `${i * 0.06}s` }}>
             <div style={{ fontSize: 12, color: 'var(--muted)' }}>{l}</div>
             <div style={{ marginTop: 4, fontSize: 22, fontWeight: 700, color: i ? 'var(--pos)' : 'var(--text)' }}><Odometer value={money(v || 0)} delay={i * 0.15} /></div>
-            {cat !== '' && <div style={{ marginTop: 4, fontSize: 11, color: 'var(--muted)' }}>Whole month, all categories</div>}
+            {filtered && <div style={{ marginTop: 4, fontSize: 11, color: 'var(--muted)' }}>This month, filtered</div>}
           </div>
         ))}
         <div className="card rise" style={{ padding: '14px 18px', animationDelay: '.12s' }}>
@@ -43,7 +52,7 @@ export default function Transactions({ summary, accounts, refreshKey, onChanged 
                 <option value="">All categories</option>
                 {groups.map((g) => (
                   <optgroup key={g.group_name} label={g.group_name}>
-                    {g.categories.filter((c) => !c.hidden).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    {g.categories.filter((c) => !c.hidden).map((c) => <option key={c.id} value={c.id}>{withIcon(c)}{c.name}</option>)}
                   </optgroup>
                 ))}
               </select>

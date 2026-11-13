@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { api, money, toast } from '../api'
-import { useCategories, categoryLabel, loadCategories } from '../categories'
+import { useCategories, categoryLabel, loadCategories, withIcon } from '../categories'
 
 const inp = { height: 36, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg)', color: 'var(--text)', padding: '0 10px', fontSize: 13 }
 const btn = { height: 36, padding: '0 14px', borderRadius: 8, border: 0, background: 'var(--accent)', color: '#fff', fontWeight: 600, fontSize: 13 }
@@ -88,7 +88,7 @@ function RuleEditor({ initial, accounts, groups, onSaved, onCancel }) {
           <option value="">Leave category alone</option>
           {groups.map((g) => (
             <optgroup key={g.group_name} label={g.group_name}>
-              {g.categories.filter((x) => !x.hidden).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+              {g.categories.filter((x) => !x.hidden).map((x) => <option key={x.id} value={x.id}>{withIcon(x)}{x.name}</option>)}
             </optgroup>
           ))}
         </select>
@@ -180,7 +180,8 @@ function RulesTab({ accounts, groups }) {
 
 function CategoriesTab({ groups }) {
   const [editing, setEditing] = useState(null) // { id, name }
-  const [draft, setDraft] = useState({ name: '', group_name: '', type: 'expense' })
+  const [iconEdit, setIconEdit] = useState(null) // { id, icon }
+  const [draft, setDraft] = useState({ name: '', group_name: '', type: 'expense', icon: '' })
   const [showHidden, setShowHidden] = useState(false)
   const groupsId = useId()
 
@@ -189,7 +190,7 @@ function CategoriesTab({ groups }) {
   }
   const add = async (e) => {
     e.preventDefault()
-    try { await api.addCategory(draft); await loadCategories(true); setDraft({ name: '', group_name: '', type: 'expense' }); toast('Category added.') } catch (x) { toast(x.message) }
+    try { await api.addCategory(draft); await loadCategories(true); setDraft({ name: '', group_name: '', type: 'expense', icon: '' }); toast('Category added.') } catch (x) { toast(x.message) }
   }
   const commitRename = async () => {
     const current = editing
@@ -201,6 +202,7 @@ function CategoriesTab({ groups }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <form onSubmit={add} className="card" style={{ padding: 14, display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
         <span style={{ fontSize: 13, color: 'var(--muted)' }}>New category</span>
+        <input value={draft.icon} onChange={(e) => setDraft({ ...draft, icon: e.target.value })} placeholder="Icon" style={{ ...inp, width: 56 }} />
         <input required value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Name" style={{ ...inp, flex: '1 1 160px' }} />
         <input required list={groupsId} value={draft.group_name} onChange={(e) => setDraft({ ...draft, group_name: e.target.value })} placeholder="Group" style={{ ...inp, flex: '1 1 160px' }} />
         <datalist id={groupsId}>{groups.map((g) => <option key={g.group_name} value={g.group_name} />)}</datalist>
@@ -223,6 +225,15 @@ function CategoriesTab({ groups }) {
             <div style={{ border: '1px solid var(--line)', borderRadius: 12 }}>
               {items.map((c, i) => (
                 <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 14px', borderTop: i ? '1px solid var(--line2)' : 0, fontSize: 14, opacity: c.hidden ? 0.55 : 1 }}>
+                  {iconEdit && iconEdit.id === c.id ? (
+                    <input autoFocus value={iconEdit.icon} onChange={(e) => setIconEdit({ ...iconEdit, icon: e.target.value })}
+                      onBlur={() => { const cur = iconEdit; setIconEdit(null); patch(cur.id, { icon: cur.icon }) }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') setIconEdit(null) }}
+                      aria-label={`Icon for ${c.name}`} style={{ ...inp, width: 48, height: 30, textAlign: 'center', padding: 0 }} />
+                  ) : (
+                    <button type="button" title="Change icon" onClick={() => c.id !== 'UNCATEGORIZED' && setIconEdit({ id: c.id, icon: c.icon || '' })}
+                      style={{ width: 32, height: 30, border: 0, background: 'transparent', fontSize: 18, padding: 0 }}>{c.icon || '🏷️'}</button>
+                  )}
                   {editing && editing.id === c.id ? (
                     <input autoFocus value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })}
                       onBlur={commitRename} onKeyDown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setEditing(null) }}
