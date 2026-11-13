@@ -164,8 +164,9 @@ def seed():
     rows.append((UNCAT, "Uncategorized", "Uncategorized", "expense", 0, UNCAT_ICON))
     db.many("INSERT OR IGNORE INTO categories (id, group_name, name, type, sort, icon) VALUES (?,?,?,?,?,?)", rows)
     # Fill icons for rows that predate the column or were inserted by ensure(); never overwrite a chosen icon.
-    for r in db.q("SELECT id, group_name FROM categories WHERE icon IS NULL OR icon=''"):
-        db.run("UPDATE categories SET icon=? WHERE id=?", (default_icon(r["id"], r["group_name"]), r["id"]))
+    rows = db.q("SELECT id, group_name FROM categories WHERE icon IS NULL OR icon=''")
+    if rows:
+        db.many("UPDATE categories SET icon=? WHERE id=?", [(default_icon(r["id"], r["group_name"]), r["id"]) for r in rows])
 
 
 def ensure(code):

@@ -128,3 +128,15 @@ def test_summary_filters(fresh):
     assert app.summary(cat_id="FOOD_AND_DRINK_COFFEE")["spent_month"] == 30.0
     assert app.summary(account_id="acc-1")["spent_month"] == 20.0
     assert app.summary(account_id="acc-1", cat_id="FOOD_AND_DRINK_COFFEE")["spent_month"] == 0.0
+
+
+def test_add_category_rejects_long_icon(fresh):
+    with pytest.raises(HTTPException) as e:
+        app.add_category(app.CategoryReq(name="x", group_name="Pets", icon="y" * 17))
+    assert e.value.status_code == 400
+
+
+def test_patch_group_and_reset_icon_uses_new_group(fresh):
+    c = app.add_category(app.CategoryReq(name="Chew toys", group_name="Pets"))
+    out = app.patch_category(c["id"], app.CategoryPatch(group_name="Food & drink", icon=""))
+    assert out["icon"] == "🍴"

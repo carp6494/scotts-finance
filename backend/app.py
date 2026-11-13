@@ -415,6 +415,15 @@ class CategoryPatch(BaseModel):
     icon: str | None = None
 
 
+def _clean_icon(raw: str | None) -> str | None:
+    if raw is None:
+        return None
+    icon = raw.strip()
+    if len(icon) > 16:
+        raise HTTPException(400, "Icon is too long")
+    return icon
+
+
 @app.get("/api/categories")
 def list_categories():
     return categories.grouped()
@@ -426,7 +435,7 @@ def add_category(req: CategoryReq):
         raise HTTPException(400, "Name and group are required")
     if req.type not in CAT_TYPES:
         raise HTTPException(400, "Type must be income, expense, or transfer")
-    return categories.add_custom(req.name, req.group_name, req.type, req.icon)
+    return categories.add_custom(req.name, req.group_name, req.type, _clean_icon(req.icon))
 
 
 @app.patch("/api/categories/{cat_id}")
@@ -447,12 +456,10 @@ def patch_category(cat_id: str, req: CategoryPatch):
     if req.hidden is not None:
         sets.append("hidden=?"); args.append(1 if req.hidden else 0)
     if req.icon is not None:
-        icon = req.icon.strip()
-        if len(icon) > 16:
-            raise HTTPException(400, "Icon is too long")
+        icon = _clean_icon(req.icon)
         if not icon:
             row = categories.get(cat_id)
-            icon = categories.default_icon(cat_id, row["group_name"])
+            icon = categories.default_icon(cat_id, (req.group_name or row["group_name"]).strip())
         sets.append("icon=?"); args.append(icon)
     if sets:
         db.run(f"UPDATE categories SET {', '.join(sets)} WHERE id=?", args + [cat_id])
