@@ -117,6 +117,20 @@ CREATE TABLE IF NOT EXISTS merchant_memory (
   cat_id TEXT NOT NULL,
   updated_at TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS merchant_places (
+  merchant_key TEXT PRIMARY KEY,
+  name TEXT,
+  address TEXT,
+  city TEXT,
+  region TEXT,
+  postal TEXT,
+  country TEXT,
+  lat REAL,
+  lon REAL,
+  kind TEXT DEFAULT 'user',
+  updated_at TEXT DEFAULT (datetime('now'))
+);
 """
 
 
@@ -141,6 +155,15 @@ _ADDED_COLUMNS = (
     ("transactions", "is_transfer INTEGER DEFAULT 0"),
     ("transactions", "display_name TEXT"),
     ("categories", "icon TEXT"),
+    ("transactions", "place_address TEXT"),
+    ("transactions", "place_city TEXT"),
+    ("transactions", "place_region TEXT"),
+    ("transactions", "place_postal TEXT"),
+    ("transactions", "place_country TEXT"),
+    ("transactions", "place_lat REAL"),
+    ("transactions", "place_lon REAL"),
+    ("transactions", "place_store TEXT"),
+    ("transactions", "place_source TEXT"),
 )
 for _table, _col in _ADDED_COLUMNS:
     try:

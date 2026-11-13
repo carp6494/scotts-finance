@@ -16,7 +16,7 @@ import db  # noqa: E402
 @pytest.fixture
 def fresh():
     """Empty every table the engine touches, then reseed categories."""
-    for t in ("transactions", "rules", "merchant_memory", "categories", "accounts"):
+    for t in ("transactions", "rules", "merchant_memory", "merchant_places", "categories", "accounts"):
         db.run(f"DELETE FROM {t}")
     import categories
     categories.seed()
