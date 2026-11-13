@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { api, money, toast } from '../api'
 import { useCategories, categoryLabel, loadCategories } from '../categories'
 
@@ -7,14 +7,17 @@ const btn = { height: 36, padding: '0 14px', borderRadius: 8, border: 0, backgro
 const ghost = { ...btn, background: 'transparent', border: '1px solid var(--line)', color: 'var(--text2)', fontWeight: 500 }
 const EMPTY = { name: '', priority: 100, enabled: true, conditions: {}, actions: {} }
 
-function describe(rule, groups) {
+function describe(rule, groups, accounts) {
   const c = rule.conditions, a = rule.actions, parts = []
   if (c.merchant) parts.push(`merchant has "${c.merchant}"`)
   if (c.text) parts.push(`text has "${c.text}"`)
   if (c.amount_min != null && c.amount_max != null) parts.push(`amount ${money(c.amount_min)} to ${money(c.amount_max)}`)
   else if (c.amount_min != null) parts.push(`amount at least ${money(c.amount_min)}`)
   else if (c.amount_max != null) parts.push(`amount at most ${money(c.amount_max)}`)
-  if (c.account_id) parts.push('one account')
+  if (c.account_id) {
+    const acct = (accounts || []).find((x) => x.account_id === c.account_id)
+    parts.push(`account ${acct ? `${acct.official_name || acct.name}${acct.mask ? ` ${acct.mask}` : ''}` : 'one account'}`)
+  }
   if (c.day_min != null || c.day_max != null) parts.push(`day ${c.day_min ?? 1} to ${c.day_max ?? 31}`)
   const acts = []
   if (a.cat_id) acts.push(`file as ${categoryLabel(groups, a.cat_id)}`)
@@ -36,7 +39,7 @@ function RuleEditor({ initial, accounts, groups, onSaved, onCancel }) {
   useEffect(() => {
     clearTimeout(timer.current)
     timer.current = setTimeout(() => {
-      api.previewRule({ conditions: r.conditions, actions: r.actions }).then(setPreview).catch(() => setPreview(null))
+      api.previewRule({ conditions: r.conditions, actions: r.actions }).then((p) => setPreview({ ok: true, ...p })).catch((e) => setPreview({ error: e.message }))
     }, 300)
     return () => clearTimeout(timer.current)
   }, [r.conditions, r.actions])
@@ -44,7 +47,7 @@ function RuleEditor({ initial, accounts, groups, onSaved, onCancel }) {
   const save = async (applyPast) => {
     setBusy(true); setErr('')
     try {
-      const body = { ...r, apply_past: applyPast }
+      const body = { ...r, priority: Number(r.priority) || 0, apply_past: applyPast }
       const out = r.id ? await api.updateRule(r.id, body) : await api.addRule(body)
       if (applyPast) toast(`${out.changed} transaction${out.changed === 1 ? '' : 's'} updated.`)
       onSaved()
@@ -57,7 +60,7 @@ function RuleEditor({ initial, accounts, groups, onSaved, onCancel }) {
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
         <input value={r.name} onChange={(e) => setR({ ...r, name: e.target.value })} placeholder="Rule name" style={{ ...inp, flex: '2 1 220px' }} />
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--muted)' }}>Priority
-          <input type="number" value={r.priority} onChange={(e) => setR({ ...r, priority: Number(e.target.value) || 0 })} style={{ ...inp, width: 80 }} />
+          <input type="number" value={r.priority} onChange={(e) => setR({ ...r, priority: e.target.value })} style={{ ...inp, width: 80 }} />
         </label>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--muted)' }}>
           <input type="checkbox" checked={r.enabled} onChange={(e) => setR({ ...r, enabled: e.target.checked })} /> Enabled
@@ -93,9 +96,13 @@ function RuleEditor({ initial, accounts, groups, onSaved, onCancel }) {
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}><input type="checkbox" checked={!!a.exclude} onChange={(e) => setA('exclude', e.target.checked)} /> Exclude from totals</label>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}><input type="checkbox" checked={!!a.transfer} onChange={(e) => setA('transfer', e.target.checked)} /> Mark as transfer</label>
       </div>
-      <div style={{ fontSize: 13, color: 'var(--text2)' }}>
-        {preview ? `Matches ${preview.count.toLocaleString()} transaction${preview.count === 1 ? '' : 's'} you have not set by hand` : 'Add a condition to see matches'}
-        {preview && preview.sample.length > 0 && (
+      <div style={{ fontSize: 13, color: preview?.error ? 'var(--warn)' : 'var(--text2)' }}>
+        {preview?.error
+          ? preview.error
+          : preview?.ok
+            ? `Matches ${preview.count.toLocaleString()} transaction${preview.count === 1 ? '' : 's'} you have not set by hand`
+            : 'Add a condition to see matches'}
+        {preview?.ok && preview.sample.length > 0 && (
           <span style={{ color: 'var(--muted)' }}>, for example {preview.sample.slice(0, 3).map((s) => s.display_name || s.merchant_name || s.name).join(', ')}</span>
         )}
       </div>
@@ -112,6 +119,7 @@ function RuleEditor({ initial, accounts, groups, onSaved, onCancel }) {
 function RulesTab({ accounts, groups }) {
   const [rules, setRules] = useState([])
   const [editing, setEditing] = useState(null)
+  const [confirmId, setConfirmId] = useState(null)
   const load = () => api.rules().then(setRules).catch((e) => toast(e.message))
   useEffect(() => { load() }, [])
 
@@ -145,14 +153,21 @@ function RulesTab({ accounts, groups }) {
                 <span className="num" style={{ width: 40, fontSize: 12, color: 'var(--muted)' }}>{r.priority}</span>
                 <span style={{ flex: '1 1 260px', minWidth: 0 }}>
                   <span style={{ display: 'block', fontSize: 14, fontWeight: 600 }}>{r.name}</span>
-                  <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)' }}>{describe(r, groups)}</span>
+                  <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)' }}>{describe(r, groups, accounts)}</span>
                 </span>
                 <span className="num" style={{ fontSize: 12, color: 'var(--muted)' }}>{r.hits} hit{r.hits === 1 ? '' : 's'}</span>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)' }}>
-                  <input type="checkbox" checked={r.enabled} onChange={() => toggle(r)} /> On
+                  <input type="checkbox" checked={r.enabled} onChange={() => toggle(r)} aria-label={`Enable ${r.name}`} /> On
                 </label>
                 <button type="button" onClick={() => setEditing({ ...r })} style={{ ...ghost, height: 30, padding: '0 10px', fontSize: 12 }}>Edit</button>
-                <button type="button" onClick={() => remove(r)} style={{ ...ghost, height: 30, padding: '0 10px', fontSize: 12, color: 'var(--neg)' }}>Delete</button>
+                {confirmId === r.id ? (
+                  <>
+                    <button type="button" onClick={() => { remove(r); setConfirmId(null) }} style={{ ...ghost, height: 30, padding: '0 10px', fontSize: 12, color: 'var(--neg)' }}>Confirm delete</button>
+                    <button type="button" onClick={() => setConfirmId(null)} style={{ ...ghost, height: 30, padding: '0 10px', fontSize: 12 }}>Keep</button>
+                  </>
+                ) : (
+                  <button type="button" onClick={() => setConfirmId(r.id)} style={{ ...ghost, height: 30, padding: '0 10px', fontSize: 12, color: 'var(--neg)' }}>Delete</button>
+                )}
               </div>
             )}
           </div>
@@ -167,6 +182,7 @@ function CategoriesTab({ groups }) {
   const [editing, setEditing] = useState(null) // { id, name }
   const [draft, setDraft] = useState({ name: '', group_name: '', type: 'expense' })
   const [showHidden, setShowHidden] = useState(false)
+  const groupsId = useId()
 
   const patch = async (id, body) => {
     try { await api.patchCategory(id, body); await loadCategories(true) } catch (e) { toast(e.message) }
@@ -176,8 +192,9 @@ function CategoriesTab({ groups }) {
     try { await api.addCategory(draft); await loadCategories(true); setDraft({ name: '', group_name: '', type: 'expense' }); toast('Category added.') } catch (x) { toast(x.message) }
   }
   const commitRename = async () => {
-    if (editing && editing.name.trim()) await patch(editing.id, { name: editing.name.trim() })
+    const current = editing
     setEditing(null)
+    if (current && current.name.trim()) await patch(current.id, { name: current.name.trim() })
   }
 
   return (
@@ -185,8 +202,8 @@ function CategoriesTab({ groups }) {
       <form onSubmit={add} className="card" style={{ padding: 14, display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
         <span style={{ fontSize: 13, color: 'var(--muted)' }}>New category</span>
         <input required value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Name" style={{ ...inp, flex: '1 1 160px' }} />
-        <input required list="cat-groups-tab" value={draft.group_name} onChange={(e) => setDraft({ ...draft, group_name: e.target.value })} placeholder="Group" style={{ ...inp, flex: '1 1 160px' }} />
-        <datalist id="cat-groups-tab">{groups.map((g) => <option key={g.group_name} value={g.group_name} />)}</datalist>
+        <input required list={groupsId} value={draft.group_name} onChange={(e) => setDraft({ ...draft, group_name: e.target.value })} placeholder="Group" style={{ ...inp, flex: '1 1 160px' }} />
+        <datalist id={groupsId}>{groups.map((g) => <option key={g.group_name} value={g.group_name} />)}</datalist>
         <select value={draft.type} onChange={(e) => setDraft({ ...draft, type: e.target.value })} style={inp}>
           <option value="expense">Expense</option>
           <option value="income">Income</option>
@@ -210,8 +227,10 @@ function CategoriesTab({ groups }) {
                     <input autoFocus value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })}
                       onBlur={commitRename} onKeyDown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setEditing(null) }}
                       style={{ ...inp, height: 30, flex: 1 }} />
+                  ) : c.id === 'UNCATEGORIZED' ? (
+                    <span style={{ flex: 1 }}>{c.name}</span>
                   ) : (
-                    <button type="button" onClick={() => c.id !== 'UNCATEGORIZED' && setEditing({ id: c.id, name: c.name })} title="Rename"
+                    <button type="button" onClick={() => setEditing({ id: c.id, name: c.name })} title="Rename"
                       style={{ flex: 1, textAlign: 'left', border: 0, background: 'transparent', color: 'var(--text)', font: 'inherit', padding: 0 }}>
                       {c.name}{c.custom ? <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--muted)' }}>custom</span> : null}
                     </button>

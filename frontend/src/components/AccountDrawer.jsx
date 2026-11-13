@@ -38,7 +38,7 @@ function Section({ title, rows, delay = 0 }) {
   )
 }
 
-export default function AccountDrawer({ accountId, onClose, onChanged }) {
+export default function AccountDrawer({ accountId, onClose, onChanged, onTotals }) {
   const [a, setA] = useState(null)
   const [err, setErr] = useState('')
   const [homeValue, setHomeValue] = useState('')
@@ -239,7 +239,7 @@ export default function AccountDrawer({ accountId, onClose, onChanged }) {
                 {!isHome && (
                   <section className="rise" style={{ animationDelay: '.3s' }}>
                     <h3 style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--muted)' }}>All transactions</h3>
-                    <TxList accountId={a.account_id} showAccount={false} compact refreshKey={txKey} />
+                    <TxList accountId={a.account_id} showAccount={false} compact refreshKey={txKey} onChanged={onTotals} />
                   </section>
                 )}
               </>

@@ -11,23 +11,31 @@ export default function TxList({ accountId, catId, spendingOnly = false, showAcc
   const [rows, setRows] = useState([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [prompt, setPrompt] = useState(null) // { id, merchant, catId, similar }
+  const [suggestion, setSuggestion] = useState(null) // { id, merchant, shown, catId, similar }
   const [busy, setBusy] = useState(false)
   const timer = useRef(null)
+  const seq = useRef(0)
   const groups = useCategories()
 
   const load = async (offset = 0, query = q) => {
+    const n = ++seq.current
     setLoading(true)
     try {
       const r = await api.transactions({ account_id: accountId, cat_id: catId, spending_only: spendingOnly ? 1 : undefined, q: query, limit: PAGE, offset })
+      if (seq.current !== n) return
       setTotal(r.total)
       setRows((prev) => (offset ? [...prev, ...r.rows] : r.rows))
     } finally {
-      setLoading(false)
+      if (seq.current === n) setLoading(false)
     }
   }
 
-  useEffect(() => { load(0, q) }, [accountId, catId, spendingOnly, refreshKey]) // eslint-disable-line
+  useEffect(() => {
+    clearTimeout(timer.current)
+    setSuggestion(null)
+    load(0, q)
+    return () => clearTimeout(timer.current)
+  }, [accountId, catId, spendingOnly, refreshKey]) // eslint-disable-line
 
   const onSearch = (v) => {
     setQ(v)
@@ -39,25 +47,26 @@ export default function TxList({ accountId, catId, spendingOnly = false, showAcc
     try {
       const r = await api.patchTransaction(t.transaction_id, { cat_id: newCatId })
       setRows((prev) => prev.map((x) => (x.transaction_id === t.transaction_id ? { ...x, ...r } : x)))
-      const merchant = t.display_name || t.merchant_name || t.name
-      setPrompt(r.similar > 0 ? { id: t.transaction_id, merchant, catId: newCatId, similar: r.similar } : null)
+      const merchant = t.merchant_name || t.name
+      const shown = t.display_name || merchant
+      setSuggestion(r.similar > 0 ? { id: t.transaction_id, merchant, shown, catId: newCatId, similar: r.similar } : null)
       onChanged && onChanged()
     } catch (e) { toast(e.message) }
   }
 
   const makeRule = async () => {
-    if (!prompt) return
+    if (!suggestion) return
     setBusy(true)
     try {
       const r = await api.addRule({
-        name: `${prompt.merchant} → ${categoryLabel(groups, prompt.catId)}`,
-        conditions: { merchant: prompt.merchant },
-        actions: { cat_id: prompt.catId },
-        created_from: prompt.id,
+        name: `${suggestion.shown} → ${categoryLabel(groups, suggestion.catId)}`,
+        conditions: { merchant: suggestion.merchant },
+        actions: { cat_id: suggestion.catId },
+        created_from: suggestion.id,
         apply_past: true,
       })
       toast(`Rule saved. ${r.changed} past transaction${r.changed === 1 ? '' : 's'} updated.`)
-      setPrompt(null)
+      setSuggestion(null)
       load(0, q)
       onChanged && onChanged()
     } catch (e) { toast(e.message) } finally { setBusy(false) }
@@ -99,16 +108,16 @@ export default function TxList({ accountId, catId, spendingOnly = false, showAcc
                   {t.display_amount > 0 ? '+' : ''}{money(t.display_amount)}
                 </span>
               </div>
-              {prompt && prompt.id === t.transaction_id && (
+              {suggestion && suggestion.id === t.transaction_id && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, padding: '8px 16px 10px', fontSize: 13, color: 'var(--text2)', background: 'var(--hover)' }}>
                   <span style={{ flex: 1 }}>
-                    Always file <b>{prompt.merchant}</b> as <b>{categoryLabel(groups, prompt.catId)}</b>? {prompt.similar} past transaction{prompt.similar === 1 ? '' : 's'} would change.
+                    Always file <b>{suggestion.shown}</b> as <b>{categoryLabel(groups, suggestion.catId)}</b>? {suggestion.similar} past transaction{suggestion.similar === 1 ? '' : 's'} would change.
                   </span>
                   <button type="button" onClick={makeRule} disabled={busy} className="press"
                     style={{ height: 30, padding: '0 12px', borderRadius: 8, border: 0, background: 'var(--accent)', color: '#fff', fontWeight: 600, fontSize: 12 }}>
                     {busy ? 'Saving...' : 'Make rule'}
                   </button>
-                  <button type="button" onClick={() => setPrompt(null)} style={{ height: 30, padding: '0 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'transparent', color: 'var(--text2)', fontSize: 12 }}>Not now</button>
+                  <button type="button" onClick={() => setSuggestion(null)} style={{ height: 30, padding: '0 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'transparent', color: 'var(--text2)', fontSize: 12 }}>Not now</button>
                 </div>
               )}
             </div>

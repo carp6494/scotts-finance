@@ -56,6 +56,11 @@ function Main({ onLogout }) {
     setStatus(st); setSummary(sm); setAccounts(ac); setRefreshKey((k) => k + 1)
   }, [])
 
+  const refreshTotals = useCallback(async () => {
+    const [st, sm, ac] = await Promise.all([api.status(), api.summary(), api.accounts()])
+    setStatus(st); setSummary(sm); setAccounts(ac)
+  }, [])
+
   useEffect(() => { refresh().catch((e) => setToast(e.message)) }, [refresh])
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(''), 5000); return () => clearTimeout(t) } }, [toast])
   useEffect(() => {
@@ -132,14 +137,14 @@ function Main({ onLogout }) {
         <AnimatePresence mode="wait">
           <motion.div key={page} initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }} transition={{ duration: 0.28, ease: 'easeOut' }}>
             {page === 'dashboard' && <Dashboard summary={summary} accounts={accounts} onOpen={setOpenId} onChanged={refresh} />}
-            {page === 'transactions' && <Transactions summary={summary} accounts={accounts} refreshKey={refreshKey} onChanged={refresh} />}
+            {page === 'transactions' && <Transactions summary={summary} accounts={accounts} refreshKey={refreshKey} onChanged={refreshTotals} />}
             {page === 'rules' && <Rules accounts={accounts} />}
             {page === 'debt' && <Debt />}
           </motion.div>
         </AnimatePresence>
       </main>
 
-      <AccountDrawer accountId={openId} onClose={() => setOpenId(null)} onChanged={refresh} />
+      <AccountDrawer accountId={openId} onClose={() => setOpenId(null)} onChanged={refresh} onTotals={refreshTotals} />
 
       <AnimatePresence>
         {toast && (

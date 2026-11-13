@@ -20,6 +20,7 @@ export default function Transactions({ summary, accounts, refreshKey, onChanged 
           <div key={l} className="card rise" style={{ padding: '14px 18px', animationDelay: `${i * 0.06}s` }}>
             <div style={{ fontSize: 12, color: 'var(--muted)' }}>{l}</div>
             <div style={{ marginTop: 4, fontSize: 22, fontWeight: 700, color: i ? 'var(--pos)' : 'var(--text)' }}><Odometer value={money(v || 0)} delay={i * 0.15} /></div>
+            {cat !== '' && <div style={{ marginTop: 4, fontSize: 11, color: 'var(--muted)' }}>Whole month, all categories</div>}
           </div>
         ))}
         <div className="card rise" style={{ padding: '14px 18px', animationDelay: '.12s' }}>
