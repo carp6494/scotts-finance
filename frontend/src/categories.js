@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api } from './api'
+import { api, toast } from './api'
 
 // One shared copy of the grouped category list. Components subscribe; adding a category refreshes everyone.
 let cache = null
@@ -8,17 +8,21 @@ const listeners = new Set()
 
 export function loadCategories(force = false) {
   if (cache && !force) return Promise.resolve(cache)
-  if (!inflight || force) {
-    inflight = api.categories().then((g) => { cache = g; inflight = null; listeners.forEach((l) => l(g)); return g })
-  }
-  return inflight
+  if (inflight && !force) return inflight
+  const p = api.categories().then((g) => {
+    cache = g
+    listeners.forEach((l) => l(g))
+    return g
+  }).finally(() => { if (inflight === p) inflight = null })
+  inflight = p
+  return p
 }
 
 export function useCategories() {
   const [groups, setGroups] = useState(cache || [])
   useEffect(() => {
     listeners.add(setGroups)
-    loadCategories().then(setGroups).catch(() => {})
+    loadCategories().then(setGroups).catch((e) => toast(e.message))
     return () => listeners.delete(setGroups)
   }, [])
   return groups

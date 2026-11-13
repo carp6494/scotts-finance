@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { api } from '../api'
 import { useCategories, flatCategories, loadCategories } from '../categories'
 
@@ -13,6 +13,7 @@ export default function CategoryPicker({ value, onChange, compact = false }) {
   const [draft, setDraft] = useState({ name: '', group_name: '', type: 'expense' })
   const [err, setErr] = useState('')
   const box = useRef(null)
+  const groupsId = useId()
 
   const all = flatCategories(groups)
   const current = all.find((c) => c.id === value)
@@ -37,7 +38,6 @@ export default function CategoryPicker({ value, onChange, compact = false }) {
   const close = () => { setOpen(false); setQ(''); setAdding(false); setErr('') }
   const pick = (id) => { close(); if (id !== value) onChange(id) }
   const onKey = (e) => {
-    if (e.key === 'Escape') close()
     if (e.key === 'Enter' && visible.length) { e.preventDefault(); pick(visible[0].id) }
   }
   const add = async (e) => {
@@ -52,12 +52,14 @@ export default function CategoryPicker({ value, onChange, compact = false }) {
   return (
     <span ref={box} style={{ position: 'relative', display: 'inline-block' }}>
       <button type="button" onClick={(e) => { e.stopPropagation(); setOpen(!open) }} className="press" title="Change category"
+        aria-haspopup="listbox" aria-expanded={open}
         style={{ font: 'inherit', fontSize: compact ? 11 : 12, lineHeight: 1.4, color: 'var(--text2)', background: 'var(--hover)', border: '1px solid var(--line)', borderRadius: 999, padding: '1px 9px', whiteSpace: 'nowrap' }}>
         {current ? `${current.group_name} · ${current.name}` : 'Uncategorized'}
       </button>
       {open && (
-        <div style={{ position: 'absolute', zIndex: 60, top: 'calc(100% + 4px)', left: 0, width: 300, maxHeight: 380, overflowY: 'auto', background: 'var(--card)', border: '1px solid var(--line3)', borderRadius: 10, boxShadow: '0 12px 40px rgba(0,0,0,.35)', padding: 8 }}>
-          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKey} placeholder="Search categories"
+        <div onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); close() } }}
+          style={{ position: 'absolute', zIndex: 60, top: 'calc(100% + 4px)', left: 0, width: 300, maxHeight: 380, overflowY: 'auto', background: 'var(--card)', border: '1px solid var(--line3)', borderRadius: 10, boxShadow: '0 12px 40px rgba(0,0,0,.35)', padding: 8 }}>
+          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKey} placeholder="Search categories" aria-label="Search categories"
             style={{ ...inp, width: '100%', height: 34, marginBottom: 6 }} />
           {byGroup.map((g) => (
             <div key={g.name}>
@@ -78,8 +80,8 @@ export default function CategoryPicker({ value, onChange, compact = false }) {
             ) : (
               <form onSubmit={add} style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: 4 }}>
                 <input required value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Name" style={inp} />
-                <input required list="cat-groups" value={draft.group_name} onChange={(e) => setDraft({ ...draft, group_name: e.target.value })} placeholder="Group" style={inp} />
-                <datalist id="cat-groups">{groups.map((g) => <option key={g.group_name} value={g.group_name} />)}</datalist>
+                <input required list={groupsId} value={draft.group_name} onChange={(e) => setDraft({ ...draft, group_name: e.target.value })} placeholder="Group" style={inp} />
+                <datalist id={groupsId}>{groups.map((g) => <option key={g.group_name} value={g.group_name} />)}</datalist>
                 <select value={draft.type} onChange={(e) => setDraft({ ...draft, type: e.target.value })} style={inp}>
                   <option value="expense">Expense</option>
                   <option value="income">Income</option>
