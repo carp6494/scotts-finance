@@ -227,11 +227,13 @@ function CategoriesTab({ groups }) {
                 <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 14px', borderTop: i ? '1px solid var(--line2)' : 0, fontSize: 14, opacity: c.hidden ? 0.55 : 1 }}>
                   {iconEdit && iconEdit.id === c.id ? (
                     <input autoFocus value={iconEdit.icon} onChange={(e) => setIconEdit({ ...iconEdit, icon: e.target.value })}
-                      onBlur={() => { const cur = iconEdit; setIconEdit(null); patch(cur.id, { icon: cur.icon }) }}
+                      onBlur={() => { const cur = iconEdit; setIconEdit(null); if (cur.icon !== (c.icon || '')) patch(cur.id, { icon: cur.icon }) }}
                       onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') setIconEdit(null) }}
                       aria-label={`Icon for ${c.name}`} style={{ ...inp, width: 48, height: 30, textAlign: 'center', padding: 0 }} />
+                  ) : c.id === 'UNCATEGORIZED' ? (
+                    <span style={{ width: 32, fontSize: 18, textAlign: 'center' }}>{c.icon || '🏷️'}</span>
                   ) : (
-                    <button type="button" title="Change icon" onClick={() => c.id !== 'UNCATEGORIZED' && setIconEdit({ id: c.id, icon: c.icon || '' })}
+                    <button type="button" title="Change icon" onClick={() => setIconEdit({ id: c.id, icon: c.icon || '' })}
                       style={{ width: 32, height: 30, border: 0, background: 'transparent', fontSize: 18, padding: 0 }}>{c.icon || '🏷️'}</button>
                   )}
                   {editing && editing.id === c.id ? (

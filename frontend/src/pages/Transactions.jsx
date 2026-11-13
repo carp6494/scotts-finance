@@ -18,7 +18,8 @@ export default function Transactions({ summary, accounts, refreshKey, onChanged 
   useEffect(() => {
     if (!filtered) { setTotals(null); return }
     let alive = true
-    api.summary({ account_id: acct || undefined, cat_id: cat || undefined }).then((r) => { if (alive) setTotals(r) }).catch(() => {})
+    setTotals(null)
+    api.summary({ account_id: acct || undefined, cat_id: cat || undefined }).then((r) => { if (alive) setTotals(r) }).catch(() => { if (alive) setTotals(null) })
     return () => { alive = false }
   }, [acct, cat, summary]) // eslint-disable-line
   const t = totals || s
