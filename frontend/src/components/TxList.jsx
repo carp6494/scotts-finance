@@ -18,11 +18,11 @@ export default function TxList({ accountId, catId, spendingOnly = false, showAcc
   const seq = useRef(0)
   const groups = useCategories()
 
-  const load = async (offset = 0, query = q) => {
+  const load = async (offset = 0, query = q, limit = PAGE) => {
     const n = ++seq.current
     setLoading(true)
     try {
-      const r = await api.transactions({ account_id: accountId, cat_id: catId, spending_only: spendingOnly ? 1 : undefined, q: query, limit: PAGE, offset })
+      const r = await api.transactions({ account_id: accountId, cat_id: catId, spending_only: spendingOnly ? 1 : undefined, q: query, limit: Math.min(limit, 500), offset })
       if (seq.current !== n) return
       setTotal(r.total)
       setRows((prev) => (offset ? [...prev, ...r.rows] : r.rows))
@@ -106,7 +106,7 @@ export default function TxList({ accountId, catId, spendingOnly = false, showAcc
                   </span>
                   {compact
                     ? (t.place_city ? <span style={{ display: 'block', marginTop: 2, fontSize: 11, color: 'var(--muted2)' }}>{t.place_source === 'hq' ? '🏢' : '📍'} {t.place_city}{t.place_region ? ', ' + t.place_region : ''}</span> : null)
-                    : <span style={{ display: 'block', marginTop: 2 }}><PlaceLine t={t} onSaved={(r) => { setRows((prev) => prev.map((x) => (x.transaction_id === t.transaction_id ? { ...x, ...r } : x))); load(0, q); onChanged && onChanged() }} /></span>}
+                    : <span style={{ display: 'block', marginTop: 2 }}><PlaceLine t={t} onSaved={() => { load(0, q, Math.max(PAGE, rows.length)); onChanged && onChanged() }} /></span>}
                 </span>
                 <span className="num" style={{ fontSize: 14, fontWeight: 600, color: t.display_amount > 0 ? 'var(--pos)' : 'var(--text)' }}>
                   {t.display_amount > 0 ? '+' : ''}{money(t.display_amount)}
