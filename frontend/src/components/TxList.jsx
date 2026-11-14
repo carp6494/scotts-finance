@@ -5,10 +5,12 @@ import CategoryPicker from './CategoryPicker'
 import Logo from './Logo'
 import { CatLabel } from './CatIcon'
 import PlaceLine from './PlaceLine'
+import TagPills from './TagPills'
 
 const PAGE = 100
 
-export default function TxList({ accountId, catId, spot, merchant, start, end, spendingOnly = false, showAccount = true, compact = false, refreshKey = 0, onChanged }) {
+// review: show a "Reviewed" button on each row and take the review keys. unreviewed: list only rows that wait for review.
+export default function TxList({ accountId, catId, tagId, spot, merchant, start, end, spendingOnly = false, showAccount = true, compact = false, refreshKey = 0, onChanged, unreviewed = false, review = false, empty = 'No transactions yet.' }) {
   const [q, setQ] = useState('')
   const [rows, setRows] = useState([])
   const [total, setTotal] = useState(0)
@@ -17,6 +19,9 @@ export default function TxList({ accountId, catId, spot, merchant, start, end, s
   const [busy, setBusy] = useState(false)
   const timer = useRef(null)
   const seq = useRef(0)
+  const [cur, setCur] = useState(0)
+  const box = useRef(null)
+  const live = useRef({})
   const groups = useCategories()
   const icons = useMemo(() => Object.fromEntries(flatCategories(groups).map((c) => [c.id, c.icon || '🏷️'])), [groups])
 
@@ -24,7 +29,7 @@ export default function TxList({ accountId, catId, spot, merchant, start, end, s
     const n = ++seq.current
     setLoading(true)
     try {
-      const r = await api.transactions({ account_id: accountId, cat_id: catId, spot, merchant, start, end, spending_only: spendingOnly ? 1 : undefined, q: query, limit: Math.min(limit, 500), offset })
+      const r = await api.transactions({ account_id: accountId, cat_id: catId, tag_id: tagId, unreviewed: unreviewed ? 1 : undefined, spot, merchant, start, end, spending_only: spendingOnly ? 1 : undefined, q: query, limit: Math.min(limit, 500), offset })
       if (seq.current !== n) return
       setTotal(r.total)
       setRows((prev) => (offset ? [...prev, ...r.rows] : r.rows))
@@ -38,7 +43,7 @@ export default function TxList({ accountId, catId, spot, merchant, start, end, s
     setSuggestion(null)
     load(0, q)
     return () => clearTimeout(timer.current)
-  }, [accountId, catId, spot, merchant, start, end, spendingOnly, refreshKey]) // eslint-disable-line
+  }, [accountId, catId, tagId, unreviewed, spot, merchant, start, end, spendingOnly, refreshKey]) // eslint-disable-line
 
   const onSearch = (v) => {
     setQ(v)
@@ -56,6 +61,55 @@ export default function TxList({ accountId, catId, spot, merchant, start, end, s
       onChanged && onChanged()
     } catch (e) { toast(e.message) }
   }
+
+  const setTags = (t, tags) => {
+    setRows((prev) => prev.map((x) => (x.transaction_id === t.transaction_id ? { ...x, tags } : x)))
+    onChanged && onChanged()
+  }
+
+  const markReviewed = async (t) => {
+    if (!t) return
+    try {
+      await api.patchTransaction(t.transaction_id, { reviewed: true })
+      setRows((prev) => prev.filter((x) => x.transaction_id !== t.transaction_id))
+      setTotal((n) => Math.max(0, n - 1))
+      if (suggestion && suggestion.id === t.transaction_id) setSuggestion(null)
+      onChanged && onChanged()
+    } catch (e) { toast(e.message) }
+  }
+
+  // Review keys: arrows move, Enter marks reviewed, C opens the category picker, T opens the tag box.
+  live.current = { rows, cur, markReviewed }
+  useEffect(() => { if (cur > 0 && cur >= rows.length) setCur(Math.max(0, rows.length - 1)) }, [rows.length, cur])
+  useEffect(() => {
+    if (!review) return
+    const rowEl = (i) => box.current && box.current.querySelector(`[data-row="${i}"]`)
+    const onKey = (e) => {
+      const el = e.target
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+      if (el && (['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || el.isContentEditable)) return
+      const { rows: list, cur: at, markReviewed: mark } = live.current
+      if (!list.length) return
+      const k = e.key.length === 1 ? e.key.toLowerCase() : e.key
+      if (k === 'ArrowDown' || k === 'ArrowUp') {
+        e.preventDefault()
+        const next = Math.max(0, Math.min(list.length - 1, at + (k === 'ArrowDown' ? 1 : -1)))
+        setCur(next)
+        const target = rowEl(next)
+        if (target) target.scrollIntoView({ block: 'nearest' })
+      } else if (k === 'Enter') {
+        if (el && el.tagName === 'BUTTON') return // the focused button handles its own Enter
+        e.preventDefault()
+        mark(list[at])
+      } else if (k === 'c' || k === 't') {
+        const target = rowEl(at)
+        const button = target && target.querySelector(k === 'c' ? 'button[title="Change category"]' : 'button[data-tag-add]')
+        if (button) { e.preventDefault(); button.click() }
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [review])
 
   const makeRule = async () => {
     if (!suggestion) return
@@ -84,14 +138,15 @@ export default function TxList({ accountId, catId, spot, merchant, start, end, s
           style={{ flex: 1, background: 'transparent', border: 0, outline: 'none', color: 'var(--text)', fontSize: 14 }} />
         <span style={{ fontSize: 12, color: 'var(--muted)' }}>{total.toLocaleString()} total</span>
       </label>
-      <div style={{ border: '1px solid var(--line)', borderRadius: 12 }}>
+      <div ref={box} style={{ border: '1px solid var(--line)', borderRadius: 12 }}>
         {rows.map((t, i) => {
           const quiet = t.excluded || t.is_transfer || t.cat_type === 'transfer'
           return (
             <div key={t.transaction_id}>
-              <div className="rise" style={{
+              <div className="rise" data-row={i} onClick={review ? () => setCur(i) : undefined} style={{
                 display: 'flex', alignItems: 'center', gap: 12, padding: compact ? '9px 14px' : '11px 16px',
                 borderTop: i ? '1px solid var(--line2)' : 0, animationDelay: `${Math.min(i, 20) * 0.025}s`,
+                ...(review && i === cur ? { background: 'var(--hover)', boxShadow: 'inset 3px 0 0 var(--accent)' } : null),
               }}>
                 <span style={{ width: 86, fontSize: 12, color: 'var(--muted)', flexShrink: 0, whiteSpace: 'nowrap' }}>{fullDate(t.date)}</span>
                 <Logo src={t.logo} name={t.merchant_name || t.name} size={compact ? 28 : 32} icon={icons[t.cat_id] || '❔'} />
@@ -105,6 +160,7 @@ export default function TxList({ accountId, catId, spot, merchant, start, end, s
                   </span>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap' }}>
                     <CategoryPicker value={t.cat_id} compact={compact} onChange={(id) => setCategory(t, id)} />
+                    <TagPills t={t} compact={compact} onChange={(tags) => setTags(t, tags)} />
                     {showAccount && t.account_name ? <span>{t.account_name}{t.mask ? ' ' + t.mask : ''}</span> : null}
                   </span>
                   {compact
@@ -114,6 +170,12 @@ export default function TxList({ accountId, catId, spot, merchant, start, end, s
                 <span className="num" style={{ fontSize: 14, fontWeight: 600, color: quiet ? 'var(--muted)' : t.display_amount > 0 ? 'var(--pos)' : 'var(--text)' }}>
                   {t.display_amount > 0 ? '+' : ''}{money(t.display_amount)}
                 </span>
+                {review && (
+                  <button type="button" className="press" onClick={(e) => { e.stopPropagation(); markReviewed(t) }}
+                    style={{ height: 30, padding: '0 12px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--text)', fontSize: 12, fontWeight: 600, flexShrink: 0 }}>
+                    Reviewed
+                  </button>
+                )}
               </div>
               {suggestion && suggestion.id === t.transaction_id && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, padding: '8px 16px 10px', fontSize: 13, color: 'var(--text2)', background: 'var(--hover)' }}>
@@ -130,7 +192,7 @@ export default function TxList({ accountId, catId, spot, merchant, start, end, s
             </div>
           )
         })}
-        {!rows.length && !loading && <div style={{ padding: 16, fontSize: 14, color: 'var(--muted)' }}>No transactions yet.</div>}
+        {!rows.length && !loading && <div style={{ padding: 16, fontSize: 14, color: 'var(--muted)' }}>{empty}</div>}
       </div>
       {rows.length < total && (
         <button type="button" onClick={() => load(rows.length)} disabled={loading} className="press"

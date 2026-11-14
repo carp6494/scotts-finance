@@ -14,6 +14,8 @@ Scott's Finance App\
     plaid_sync.py        Plaid client: link token, exchange, transactions_sync, accounts, liabilities, holdings, item_remove
     logos.py             logo cache (tickers, merchants, institutions)
     auth.py              TOTP sign-in (pyotp), sessions, settings table
+    tags.py              tags on transactions, colors, removed-tag memory
+    review.py            review queue: what waits, the one-time start
     maintenance.py       daily backup + 7-year purge
   frontend\              React 19 + Vite 7 + Tailwind 4 + motion + react-plaid-link
     src\api.js           fetch wrappers for every endpoint, money/date/title helpers, 401 -> 'auth-required' event
@@ -39,6 +41,9 @@ Scott's Finance App\
 | `holdings` | Investment positions per account/security |
 | `sync_log` | Added/modified/removed counts and errors per sync |
 | `settings` | Key/value (created in auth.py): `totp_secret` (encrypted), `totp_confirmed` |
+| `tags` | Tag name and color |
+| `transaction_tags` | Which tags a transaction carries, and whether a rule or the owner added each |
+| `removed_tags` | Tags the owner took off a transaction, so a rule does not add them back |
 
 The DB runs in WAL mode. Migrations are additive `ALTER TABLE ... ADD COLUMN` statements guarded in `db.py`.
 
@@ -68,7 +73,11 @@ The DB runs in WAL mode. Migrations are additive `ALTER TABLE ... ADD COLUMN` st
 | POST | /accounts/{id}/import | CSV import, dedupe by sha1(account,date,amount,desc,occurrence) |
 | PATCH | /accounts/{id}/terms | {apr, limit_amt, min_payment} overrides |
 | GET | /debts | debts for the payoff planner |
-| GET | /transactions | q, account_id, paging; adds display_amount |
+| GET | /transactions | q, account_id, cat_id, tag_id, unreviewed, paging; adds display_amount and tags |
+| GET / POST | /tags | list with counts and the color list; make a tag |
+| PATCH / DELETE | /tags/{id} | rename, recolor, delete |
+| POST / DELETE | /transactions/{id}/tags, /transactions/{id}/tags/{tag_id} | add or remove one tag |
+| POST | /review/all | mark every waiting transaction reviewed |
 | GET | /summary | KPI totals for the dashboard |
 
 `/logos/*` is served from `data/logos`; everything else serves the SPA from `frontend/dist`.
@@ -79,6 +88,8 @@ The DB runs in WAL mode. Migrations are additive `ALTER TABLE ... ADD COLUMN` st
 - **Places:** `places.py` picks each row's place: owner override, bank location, Overture match, the merchant's other purchases, headquarters. `overture.py` reads `data/overture.db`, written once by `scripts/fetch_places.py`. `geo.py` adds zip or city center coordinates from `backend/geo/US.txt`. `place_precision` says which: exact, likely, zip, city or hq. Likely means the nearest branch of a chain with several in the city. Every row is placed again at startup when the rules version or the extract changes.
 - **Map:** `pages/Map.jsx` loads one view on demand. `UsMap.jsx` (three.js, us-atlas) is the Outline style. `GlobeMap.jsx` (globe.gl, world-atlas) is the World heatmap. Both use bundled data only. `TileMap.jsx` (MapLibre GL JS) is the Satellite, Hybrid and Terrain styles, with a terrain height slider, elevation colors and 3D buildings. One bar is one business; `GET /api/map` returns one point per business per spot.
 - **Map squares:** `tiles.py` serves `GET /api/tiles/{source}/{z}/{x}/{y}` for `imagery`, `hybrid`, `dem` and `buildings`. It fetches from USGS, Terrain Tiles on AWS Open Data, or OpenFreeMap, saves the square under `data/tiles`, and serves it from disk after that. `GET / PUT /api/settings/map` holds the three switches. `DELETE /api/settings/map/saved` empties the folder.
+- **Tags:** `tags.py` stores them. A rule can add tags through `tag_ids` in its actions; `rules.apply_tags` runs after categorizing, covers rows the owner categorized by hand, and skips any tag the owner removed from that row.
+- **Review queue:** a transaction waits while `reviewed` is 0 and it is not pending. `review.start` runs once and marks everything already stored as reviewed, except the newest five. A bank's first sync is marked reviewed. `pages/Review.jsx` lists the queue with keyboard keys.
 - **Shop icons:** `site_icons.py` fetches a website's icon in the background for merchants with no other logo.
 - **Plaid:** Link opens in the browser and the public token is exchanged. The access token is encrypted and stored. `transactions_sync` runs with a cursor and retries on `TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION`. After that, accounts, liabilities and holdings are pulled and the institution logo is saved once. When Plaid reports `ITEM_LOGIN_REQUIRED`, a reconnect banner opens Link in update mode.
 - **Timers:** Auto sync runs every 6 hours (started at startup). Daily maintenance backs up to `backups/` (keeping 30) and purges transactions older than 7 years.

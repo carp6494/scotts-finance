@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { api, money, toast } from '../api'
 import { useCategories, categoryLabel, loadCategories, withIcon } from '../categories'
 import CatIcon from '../components/CatIcon'
+import { useTags, loadTags, pillStyle } from '../tags'
 
 const inp = { height: 36, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg)', color: 'var(--text)', padding: '0 10px', fontSize: 13 }
 const btn = { height: 36, padding: '0 14px', borderRadius: 8, border: 0, background: 'var(--accent)', color: '#fff', fontWeight: 600, fontSize: 13 }
@@ -25,6 +26,7 @@ function describe(rule, groups, accounts) {
   if (a.display_name) acts.push(`show as "${a.display_name}"`)
   if (a.exclude) acts.push('exclude from totals')
   if (a.transfer) acts.push('mark as transfer')
+  if (a.tags && a.tags.length) acts.push(`tag ${a.tags.map((x) => `"${x}"`).join(', ')}`)
   return `When ${parts.join(' and ') || 'anything'}: ${acts.join(', ') || 'nothing'}`
 }
 
@@ -33,6 +35,9 @@ function RuleEditor({ initial, accounts, groups, onSaved, onCancel }) {
   const [preview, setPreview] = useState(null)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
+  const [tagText, setTagText] = useState((initial.actions.tags || []).join(', '))
+  const tagsId = useId()
+  const { tags: allTags } = useTags()
   const timer = useRef(null)
   const setC = (k, v) => setR((x) => ({ ...x, conditions: { ...x.conditions, [k]: v } }))
   const setA = (k, v) => setR((x) => ({ ...x, actions: { ...x.actions, [k]: v } }))
@@ -51,6 +56,7 @@ function RuleEditor({ initial, accounts, groups, onSaved, onCancel }) {
       const body = { ...r, priority: Number(r.priority) || 0, apply_past: applyPast }
       const out = r.id ? await api.updateRule(r.id, body) : await api.addRule(body)
       if (applyPast) toast(`${out.changed} transaction${out.changed === 1 ? '' : 's'} updated.`)
+      loadTags(true).catch(() => {})
       onSaved()
     } catch (e) { setErr(e.message) } finally { setBusy(false) }
   }
@@ -96,6 +102,9 @@ function RuleEditor({ initial, accounts, groups, onSaved, onCancel }) {
         <input value={a.display_name || ''} onChange={(e) => setA('display_name', e.target.value)} placeholder="Show merchant as" style={inp} />
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}><input type="checkbox" checked={!!a.exclude} onChange={(e) => setA('exclude', e.target.checked)} /> Exclude from totals</label>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}><input type="checkbox" checked={!!a.transfer} onChange={(e) => setA('transfer', e.target.checked)} /> Mark as transfer</label>
+        <input list={tagsId} value={tagText} placeholder="Add tags, comma between" aria-label="Add tags"
+          onChange={(e) => { setTagText(e.target.value); setA('tags', e.target.value.split(',').map((x) => x.trim()).filter(Boolean)) }} style={inp} />
+        <datalist id={tagsId}>{allTags.map((g) => <option key={g.id} value={g.name} />)}</datalist>
       </div>
       <div style={{ fontSize: 13, color: preview?.error ? 'var(--warn)' : 'var(--text2)' }}>
         {preview?.error
@@ -265,6 +274,65 @@ function CategoriesTab({ groups }) {
   )
 }
 
+function TagsTab() {
+  const { tags, colors } = useTags()
+  const [editing, setEditing] = useState(null) // { id, name }
+  const [confirmId, setConfirmId] = useState(null)
+  useEffect(() => { loadTags(true).catch(() => {}) }, [])
+
+  const patch = async (id, body) => {
+    try { await api.patchTag(id, body); await loadTags(true) } catch (e) { toast(e.message) }
+  }
+  const remove = async (g) => {
+    try { await api.deleteTag(g.id); await loadTags(true); setConfirmId(null) } catch (e) { toast(e.message) }
+  }
+  const commitRename = async () => {
+    const current = editing
+    setEditing(null)
+    if (current && current.name.trim()) await patch(current.id, { name: current.name.trim() })
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ fontSize: 13, color: 'var(--muted)' }}>To make a tag, click "+ tag" on any transaction and type a name. Click a name here to rename it. Deleting a tag takes it off every transaction.</div>
+      <div style={{ border: '1px solid var(--line)', borderRadius: 12 }}>
+        {tags.map((g, i) => (
+          <div key={g.id} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, padding: '8px 14px', borderTop: i ? '1px solid var(--line2)' : 0, fontSize: 14 }}>
+            {editing && editing.id === g.id ? (
+              <input autoFocus value={editing.name} maxLength={32} onChange={(e) => setEditing({ ...editing, name: e.target.value })}
+                onBlur={commitRename} onKeyDown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setEditing(null) }}
+                aria-label={`Name for tag ${g.name}`} style={{ ...inp, height: 30, flex: '1 1 160px' }} />
+            ) : (
+              <span style={{ flex: '1 1 160px' }}>
+                <button type="button" onClick={() => setEditing({ id: g.id, name: g.name })} title="Rename"
+                  style={{ ...pillStyle(g.color), font: 'inherit', fontSize: 13, padding: '2px 10px' }}>
+                  <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: 4, background: g.color }} />{g.name}
+                </button>
+              </span>
+            )}
+            <span className="num" style={{ fontSize: 12, color: 'var(--muted)', width: 110 }}>{g.count.toLocaleString()} transaction{g.count === 1 ? '' : 's'}</span>
+            <span style={{ display: 'flex', gap: 5 }} role="group" aria-label={`Color for ${g.name}`}>
+              {colors.map((c) => (
+                <button key={c} type="button" onClick={() => patch(g.id, { color: c })} title="Use this color" aria-label={`Color ${c}`} aria-pressed={c === g.color}
+                  style={{ width: 18, height: 18, borderRadius: 9, padding: 0, background: c, border: c === g.color ? '2px solid var(--text)' : '2px solid transparent' }} />
+              ))}
+            </span>
+            {confirmId === g.id ? (
+              <>
+                <button type="button" onClick={() => remove(g)} style={{ ...ghost, height: 30, padding: '0 10px', fontSize: 12, color: 'var(--neg)' }}>Confirm delete</button>
+                <button type="button" onClick={() => setConfirmId(null)} style={{ ...ghost, height: 30, padding: '0 10px', fontSize: 12 }}>Keep</button>
+              </>
+            ) : (
+              <button type="button" onClick={() => setConfirmId(g.id)} style={{ ...ghost, height: 30, padding: '0 10px', fontSize: 12, color: 'var(--neg)' }}>Delete</button>
+            )}
+          </div>
+        ))}
+        {!tags.length && <div style={{ padding: 16, fontSize: 14, color: 'var(--muted)' }}>No tags yet. Open "Transactions", click "+ tag" on a row, and type a name.</div>}
+      </div>
+    </div>
+  )
+}
+
 export default function Rules({ accounts }) {
   const [tab, setTab] = useState('rules')
   const groups = useCategories()
@@ -274,9 +342,10 @@ export default function Rules({ accounts }) {
   )
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', gap: 6 }}>{tabBtn('rules', 'Rules')}{tabBtn('categories', 'Categories')}</div>
+      <div style={{ display: 'flex', gap: 6 }}>{tabBtn('rules', 'Rules')}{tabBtn('categories', 'Categories')}{tabBtn('tags', 'Tags')}</div>
       {tab === 'rules' && <RulesTab accounts={accounts} groups={groups} />}
       {tab === 'categories' && <CategoriesTab groups={groups} />}
+      {tab === 'tags' && <TagsTab />}
     </div>
   )
 }

@@ -10,6 +10,7 @@ import Debt from './pages/Debt'
 import Rules from './pages/Rules'
 import Settings from './pages/Settings'
 import MapPage from './pages/Map'
+import Review from './pages/Review'
 
 function useTheme() {
   const [mode, setMode] = useState(() => { try { return localStorage.getItem('theme') || 'system' } catch { return 'system' } })
@@ -27,7 +28,7 @@ function useTheme() {
   return [mode, setMode]
 }
 
-const PAGES = [['dashboard', 'Dashboard'], ['transactions', 'Transactions'], ['map', 'Map'], ['rules', 'Rules'], ['debt', 'Debt payoff']]
+const PAGES = [['dashboard', 'Dashboard'], ['transactions', 'Transactions'], ['review', 'Review'], ['map', 'Map'], ['rules', 'Rules'], ['debt', 'Debt payoff']]
 
 const TITLES = { ...Object.fromEntries(PAGES), settings: 'Settings' }
 
@@ -97,6 +98,9 @@ function Main({ onLogout }) {
           <button key={k} type="button" onClick={() => setPage(k)} aria-current={page === k ? 'page' : undefined}
             style={{ textAlign: 'left', padding: '10px 12px', borderRadius: 8, border: 0, background: page === k ? 'var(--active)' : 'transparent', color: page === k ? 'var(--text)' : 'var(--text2)', fontWeight: page === k ? 600 : 400, fontSize: 14 }}>
             {l}
+            {k === 'review' && summary?.unreviewed > 0 && (
+              <span className="num" style={{ float: 'right', minWidth: 20, textAlign: 'center', padding: '1px 6px', borderRadius: 999, background: 'var(--accent)', color: '#fff', fontSize: 11, fontWeight: 600 }}>{summary.unreviewed.toLocaleString()}</span>
+            )}
           </button>
         ))}
         <button type="button" onClick={() => setPage('settings')} aria-current={page === 'settings' ? 'page' : undefined}
@@ -138,6 +142,7 @@ function Main({ onLogout }) {
           <motion.div key={page} initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }} transition={{ duration: 0.28, ease: 'easeOut' }}>
             {page === 'dashboard' && <Dashboard summary={summary} accounts={accounts} onOpen={setOpenId} onChanged={refresh} />}
             {page === 'transactions' && <Transactions summary={summary} accounts={accounts} refreshKey={refreshKey} onChanged={refreshTotals} />}
+            {page === 'review' && <Review summary={summary} refreshKey={refreshKey} onChanged={refreshTotals} />}
             {page === 'map' && <MapPage accounts={accounts} refreshKey={refreshKey} onChanged={refreshTotals} />}
             {page === 'rules' && <Rules accounts={accounts} />}
             {page === 'debt' && <Debt />}

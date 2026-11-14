@@ -24,6 +24,7 @@ from plaid.model.transactions_sync_request_options import TransactionsSyncReques
 import db
 import logos
 import places
+import review
 import rules
 from secure import decrypt, encrypt
 
@@ -184,6 +185,8 @@ def sync_item(item_id):
                     continue
                 raise
         db.many(TX_UPSERT, [_tx_row(t, item_id) for t in pages_added + pages_modified])
+        if not start_cursor:
+            review.mark_item(item_id)  # a first sync is history, not news
         try:
             rules.categorize([_d(t)["transaction_id"] for t in pages_added + pages_modified])
         except Exception:

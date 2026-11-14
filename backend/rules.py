@@ -149,12 +149,53 @@ def categorize(transaction_ids=None) -> int:
     if updates:
         db.many("""UPDATE transactions SET cat_id=?, cat_source=?, excluded=?, is_transfer=?, display_name=?
                    WHERE transaction_id=? AND COALESCE(cat_source,'') != 'user'""", updates)
+    changed = {u[-1] for u in updates} | apply_tags(loaded, transaction_ids, matched_rules)
     db.run("""UPDATE rules SET hits = COALESCE(
                 (SELECT c FROM (SELECT cat_source AS s, COUNT(*) AS c FROM transactions GROUP BY cat_source) WHERE s = 'rule:' || rules.id), 0)""")
     if matched_rules:
         db.many("UPDATE rules SET last_applied=datetime('now') WHERE id=?", [(rid,) for rid in matched_rules])
-    log.info("categorized %s rows, %s rules matched", len(updates), len(matched_rules))
-    return len(updates)
+    log.info("categorized %s rows, %s rules matched, %s rows changed", len(updates), len(matched_rules), len(changed))
+    return len(changed)
+
+
+def apply_tags(loaded, transaction_ids, matched_rules) -> set:
+    """Add the tags of every enabled rule that matches. Returns the ids of rows that gained a tag.
+
+    Unlike categories, this covers rows the owner categorized by hand, and every matching rule
+    counts, not only the first. A tag the owner removed from a row is never added back.
+    """
+    known = {r["id"] for r in db.q("SELECT id FROM tags")}
+    tagging = []
+    for r, cond, act in loaded:
+        ids = [i for i in (act.get("tag_ids") or []) if i in known] if isinstance(act.get("tag_ids"), list) else []
+        if ids:
+            tagging.append((r, cond, ids))
+    if not tagging:
+        return set()
+    base = "SELECT transaction_id, account_id, date, amount, name, merchant_name, display_name FROM transactions"
+    if transaction_ids is None:
+        rows = db.q(base)
+    else:
+        ids, rows = list(dict.fromkeys(transaction_ids)), []
+        for i in range(0, len(ids), 500):
+            chunk = ids[i:i + 500]
+            rows += db.q(f"{base} WHERE transaction_id IN ({','.join('?' * len(chunk))})", chunk)
+    have = {(x["transaction_id"], x["tag_id"]) for x in db.q("SELECT transaction_id, tag_id FROM transaction_tags")}
+    have |= {(x["transaction_id"], x["tag_id"]) for x in db.q("SELECT transaction_id, tag_id FROM removed_tags")}
+    new = []
+    for t in rows:
+        for r, cond, ids in tagging:
+            if not match(cond, t):
+                continue
+            matched_rules.add(r["id"])
+            for tag_id in ids:
+                key = (t["transaction_id"], tag_id)
+                if key not in have:
+                    have.add(key)
+                    new.append((t["transaction_id"], tag_id, f"rule:{r['id']}"))
+    if new:
+        db.many("INSERT OR IGNORE INTO transaction_tags (transaction_id, tag_id, source) VALUES (?,?,?)", new)
+    return {n[0] for n in new}
 
 
 def missing_ids():

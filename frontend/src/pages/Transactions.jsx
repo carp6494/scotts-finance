@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, money } from '../api'
 import { useCategories, withIcon } from '../categories'
+import { useTags } from '../tags'
 import Odometer from '../components/Odometer'
 import TxList from '../components/TxList'
 
@@ -9,19 +10,21 @@ const sel = { height: 36, borderRadius: 8, border: '1px solid var(--line)', back
 export default function Transactions({ summary, accounts, refreshKey, onChanged }) {
   const [acct, setAcct] = useState('')
   const [cat, setCat] = useState('')
+  const [tag, setTag] = useState('')
+  const { tags } = useTags()
   const [spendingOnly, setSpendingOnly] = useState(false)
   const groups = useCategories()
   const s = summary || {}
   const linked = accounts.filter((a) => !a.manual)
   const [totals, setTotals] = useState(null)
-  const filtered = Boolean(acct || cat)
+  const filtered = Boolean(acct || cat || tag)
   useEffect(() => {
     if (!filtered) { setTotals(null); return }
     let alive = true
     setTotals(null)
-    api.summary({ account_id: acct || undefined, cat_id: cat || undefined }).then((r) => { if (alive) setTotals(r) }).catch(() => { if (alive) setTotals(null) })
+    api.summary({ account_id: acct || undefined, cat_id: cat || undefined, tag_id: tag || undefined }).then((r) => { if (alive) setTotals(r) }).catch(() => { if (alive) setTotals(null) })
     return () => { alive = false }
-  }, [acct, cat, summary]) // eslint-disable-line
+  }, [acct, cat, tag, summary]) // eslint-disable-line
   const t = totals || s
   const [cov, setCov] = useState(null)
   useEffect(() => { api.placesCoverage().then(setCov).catch(() => {}) }, [refreshKey, summary]) // eslint-disable-line
@@ -61,12 +64,18 @@ export default function Transactions({ summary, accounts, refreshKey, onChanged 
                 ))}
               </select>
             </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>Tag
+              <select value={tag} onChange={(e) => setTag(e.target.value)} style={sel}>
+                <option value="">All tags</option>
+                {tags.map((g) => <option key={g.id} value={g.id}>{g.name} ({g.count})</option>)}
+              </select>
+            </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <input type="checkbox" checked={spendingOnly} onChange={(e) => setSpendingOnly(e.target.checked)} /> Hide transfers and excluded
             </label>
           </div>
         </div>
-        <TxList accountId={acct || undefined} catId={cat || undefined} spendingOnly={spendingOnly} refreshKey={refreshKey} onChanged={onChanged} />
+        <TxList accountId={acct || undefined} catId={cat || undefined} tagId={tag || undefined} spendingOnly={spendingOnly} refreshKey={refreshKey} onChanged={onChanged} />
       </div>
     </div>
   )

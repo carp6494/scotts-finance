@@ -51,6 +51,12 @@ export const api = {
   previewRule: (body) => req('POST', '/api/rules/preview', body),
   applyRules: () => req('POST', '/api/rules/apply'),
   placesCoverage: () => req('GET', '/api/places/coverage'),
+  tags: () => req('GET', '/api/tags'),
+  patchTag: (id, body) => req('PATCH', `/api/tags/${id}`, body),
+  deleteTag: (id) => req('DELETE', `/api/tags/${id}`),
+  tagTransaction: (id, name) => req('POST', `/api/transactions/${encodeURIComponent(id)}/tags`, { name }),
+  untagTransaction: (id, tagId) => req('DELETE', `/api/transactions/${encodeURIComponent(id)}/tags/${tagId}`),
+  reviewAll: () => req('POST', '/api/review/all'),
 }
 
 const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })

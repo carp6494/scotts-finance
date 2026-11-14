@@ -131,6 +131,24 @@ CREATE TABLE IF NOT EXISTS merchant_places (
   kind TEXT DEFAULT 'user',
   updated_at TEXT DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS tags (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  color TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS transaction_tags (
+  transaction_id TEXT NOT NULL,
+  tag_id INTEGER NOT NULL,
+  source TEXT DEFAULT 'user',
+  PRIMARY KEY (transaction_id, tag_id)
+);
+CREATE INDEX IF NOT EXISTS ix_tt_tag ON transaction_tags(tag_id);
+CREATE TABLE IF NOT EXISTS removed_tags (
+  transaction_id TEXT NOT NULL,
+  tag_id INTEGER NOT NULL,
+  PRIMARY KEY (transaction_id, tag_id)
+);
 """
 
 

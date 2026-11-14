@@ -29,6 +29,8 @@ import categories  # noqa: E402
 import rules  # noqa: E402
 import places  # noqa: E402
 import site_icons  # noqa: E402
+import review  # noqa: E402
+import tags  # noqa: E402
 import tiles  # noqa: E402
 from fastapi import Request, Response  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
@@ -558,8 +560,14 @@ def patch_category(cat_id: str, req: CategoryPatch):
 @app.get("/api/transactions")
 def transactions(account_id: str | None = None, q: str | None = None, cat_id: str | None = None,
                  spending_only: int = 0, limit: int = 100, offset: int = 0,
-                 spot: str | None = None, start: str | None = None, end: str | None = None, merchant: str | None = None):
+                 spot: str | None = None, start: str | None = None, end: str | None = None, merchant: str | None = None,
+                 tag_id: int | None = None, unreviewed: int = 0):
     where, args = ["1=1"], []
+    if tag_id:
+        where.append("EXISTS (SELECT 1 FROM transaction_tags x WHERE x.transaction_id=t.transaction_id AND x.tag_id=?)")
+        args.append(tag_id)
+    if unreviewed:
+        where.append("COALESCE(t.reviewed,0)=0 AND COALESCE(t.pending,0)=0")
     if merchant:
         where.append("COALESCE(NULLIF(t.display_name,''), NULLIF(t.merchant_name,''), t.name)=?")
         args.append(merchant)
@@ -585,8 +593,10 @@ def transactions(account_id: str | None = None, q: str | None = None, cat_id: st
     if spending_only:
         where.append("COALESCE(t.excluded,0)=0 AND COALESCE(t.is_transfer,0)=0 AND COALESCE(c.type,'expense') != 'transfer'")
     if q:
-        where.append("(LOWER(COALESCE(t.display_name,'')||' '||COALESCE(t.merchant_name,'')||' '||COALESCE(t.name,'')||' '||COALESCE(c.name,'')||' '||COALESCE(c.group_name,'')) LIKE ?)")
-        args.append(f"%{q.lower()}%")
+        where.append("(LOWER(COALESCE(t.display_name,'')||' '||COALESCE(t.merchant_name,'')||' '||COALESCE(t.name,'')||' '||COALESCE(c.name,'')||' '||COALESCE(c.group_name,'')) LIKE ?"
+                     " OR EXISTS (SELECT 1 FROM transaction_tags x JOIN tags g ON g.id=x.tag_id"
+                     " WHERE x.transaction_id=t.transaction_id AND LOWER(g.name) LIKE ?))")
+        args += [f"%{q.lower()}%"] * 2
     w = " AND ".join(where)
     frm = "FROM transactions t LEFT JOIN accounts a ON a.account_id=t.account_id LEFT JOIN categories c ON c.id=t.cat_id"
     total = db.one(f"SELECT COUNT(*) AS n {frm} WHERE {w}", args)["n"]
@@ -597,7 +607,9 @@ def transactions(account_id: str | None = None, q: str | None = None, cat_id: st
                     c.name AS cat_name, c.group_name AS cat_group, c.type AS cat_type,
                     a.name AS account_name, a.mask
                     {frm} WHERE {w} ORDER BY t.date DESC, t.transaction_id LIMIT ? OFFSET ?""", args + [min(limit, 500), offset])
+    tagged = tags.for_transactions([r["transaction_id"] for r in rows])
     for r in rows:
+        r["tags"] = tagged.get(r["transaction_id"], [])
         r["logo"] = logos.merchant_logo(r["merchant_name"] or r["name"], r.pop("logo_url"), r.pop("website") or r.pop("place_website"))
         r.pop("place_website", None)
         r["display_amount"] = -(r["amount"] or 0)  # Plaid: positive = money out
@@ -613,6 +625,7 @@ class TxPatch(BaseModel):
     display_name: str | None = None
     place: dict | None = None
     clear_place: bool = False
+    reviewed: bool | None = None
 
 
 @app.patch("/api/transactions/{transaction_id}")
@@ -634,6 +647,8 @@ def patch_transaction(transaction_id: str, req: TxPatch):
         sets.append("is_transfer=?"); args.append(1 if req.is_transfer else 0)
     if req.display_name is not None:
         sets.append("display_name=?"); args.append(req.display_name.strip() or None)
+    if req.reviewed is not None:
+        sets.append("reviewed=?"); args.append(1 if req.reviewed else 0)
     if sets:
         db.run(f"UPDATE transactions SET {', '.join(sets)} WHERE transaction_id=?", args + [transaction_id])
     if req.clear_place:
@@ -643,12 +658,90 @@ def patch_transaction(transaction_id: str, req: TxPatch):
             raise HTTPException(400, "Enter at least a city or an address")
         places.set_user_place(transaction_id, req.place)
     row = db.one("""SELECT t.transaction_id, t.cat_id, t.cat_source, COALESCE(t.excluded,0) AS excluded, COALESCE(t.is_transfer,0) AS is_transfer,
-                           t.display_name, t.notes, c.name AS cat_name, c.group_name AS cat_group, c.type AS cat_type,
+                           t.display_name, t.notes, t.reviewed, c.name AS cat_name, c.group_name AS cat_group, c.type AS cat_type,
                            t.place_address, t.place_city, t.place_region, t.place_postal, t.place_country, t.place_lat, t.place_lon, t.place_source, t.place_precision
                     FROM transactions t LEFT JOIN categories c ON c.id=t.cat_id WHERE t.transaction_id=?""", (transaction_id,))
     row["similar"] = similar
     row["place_line"] = places.line(row)
     return row
+
+
+# ---------- tags ----------
+
+class TagReq(BaseModel):
+    name: str
+
+
+class TagPatch(BaseModel):
+    name: str | None = None
+    color: str | None = None
+
+
+def _tag_or_404(tag_id: int):
+    if not tags.get(tag_id):
+        raise HTTPException(404, "Tag not found")
+
+
+def _tx_or_404(transaction_id: str):
+    if not db.one("SELECT 1 FROM transactions WHERE transaction_id=?", (transaction_id,)):
+        raise HTTPException(404, "Transaction not found")
+
+
+@app.get("/api/tags")
+def list_tags():
+    return {"tags": tags.all_tags(), "colors": list(tags.PALETTE)}
+
+
+@app.post("/api/tags")
+def add_tag(req: TagReq):
+    try:
+        return tags.ensure(req.name)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.patch("/api/tags/{tag_id}")
+def patch_tag(tag_id: int, req: TagPatch):
+    _tag_or_404(tag_id)
+    try:
+        if req.name is not None:
+            tags.rename(tag_id, req.name)
+        if req.color is not None:
+            tags.recolor(tag_id, req.color)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return tags.get(tag_id)
+
+
+@app.delete("/api/tags/{tag_id}")
+def delete_tag(tag_id: int):
+    _tag_or_404(tag_id)
+    tags.delete(tag_id)
+    return {"ok": True}
+
+
+@app.post("/api/transactions/{transaction_id}/tags")
+def tag_transaction(transaction_id: str, req: TagReq):
+    _tx_or_404(transaction_id)
+    try:
+        tags.add(transaction_id, req.name)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"tags": tags.for_transactions([transaction_id]).get(transaction_id, [])}
+
+
+@app.delete("/api/transactions/{transaction_id}/tags/{tag_id}")
+def untag_transaction(transaction_id: str, tag_id: int):
+    _tx_or_404(transaction_id)
+    tags.remove(transaction_id, tag_id)
+    return {"tags": tags.for_transactions([transaction_id]).get(transaction_id, [])}
+
+
+# ---------- review queue ----------
+
+@app.post("/api/review/all")
+def review_all():
+    return {"marked": review.mark_all()}
 
 
 # ---------- rules ----------
@@ -669,7 +762,7 @@ class PreviewReq(BaseModel):
 
 
 COND_KEYS = {"merchant", "text", "amount_min", "amount_max", "account_id", "day_min", "day_max"}
-ACT_KEYS = {"cat_id", "display_name", "exclude", "transfer"}
+ACT_KEYS = {"cat_id", "display_name", "exclude", "transfer", "tags"}
 
 
 def _clean_rule(conditions: dict, actions: dict, need_actions: bool = True):
@@ -679,6 +772,17 @@ def _clean_rule(conditions: dict, actions: dict, need_actions: bool = True):
 
     c = {k: v for k, v in (conditions or {}).items() if k in COND_KEYS and _keep(v)}
     a = {k: v for k, v in (actions or {}).items() if k in ACT_KEYS and _keep(v)}
+    # The form sends tag names. The rule stores ids, so renaming a tag keeps its rules working.
+    names = a.pop("tags", None)
+    if names:
+        if not isinstance(names, list):
+            raise HTTPException(400, "Tags must be a list of names")
+        try:
+            ids = [tags.ensure(n)["id"] for n in names if str(n or "").strip()]
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        if ids:
+            a["tag_ids"] = list(dict.fromkeys(ids))
     for k in ("merchant", "text", "account_id"):
         if k in c:
             c[k] = str(c[k]).strip()
@@ -725,6 +829,9 @@ def _rule_out(r):
     r = dict(r)
     r["conditions"] = json.loads(r["conditions"] or "{}")
     r["actions"] = json.loads(r["actions"] or "{}")
+    if isinstance(r["actions"], dict) and r["actions"].get("tag_ids"):
+        found = [tags.get(i) for i in r["actions"]["tag_ids"]]
+        r["actions"]["tags"] = [g["name"] for g in found if g]
     r["enabled"] = bool(r["enabled"])
     return r
 
@@ -854,7 +961,7 @@ def map_points(account_id: str | None = None, cat_id: str | None = None, q: str 
 # ---------- summary ----------
 
 @app.get("/api/summary")
-def summary(account_id: str | None = None, cat_id: str | None = None):
+def summary(account_id: str | None = None, cat_id: str | None = None, tag_id: int | None = None):
     rows = db.q("SELECT * FROM accounts WHERE hidden=0")
     cash = sum(a["current"] or 0 for a in rows if a["type"] in CASH_TYPES)
     debt = sum(a["current"] or 0 for a in rows if a["type"] in DEBT_TYPES)
@@ -866,12 +973,15 @@ def summary(account_id: str | None = None, cat_id: str | None = None):
         where.append("t.account_id=?"); args.append(account_id)
     if cat_id:
         where.append("t.cat_id=?"); args.append(cat_id)
+    if tag_id:
+        where.append("EXISTS (SELECT 1 FROM transaction_tags x WHERE x.transaction_id=t.transaction_id AND x.tag_id=?)")
+        args.append(tag_id)
     m = db.one(f"""SELECT COALESCE(SUM(CASE WHEN t.amount>0 AND COALESCE(c.type,'expense')='expense' THEN t.amount END),0) AS spent,
                           COALESCE(SUM(CASE WHEN t.amount<0 AND c.type='income' THEN -t.amount END),0) AS income
                    FROM transactions t LEFT JOIN categories c ON c.id=t.cat_id WHERE {' AND '.join(where)}""", args)
     return {"net_worth": cash + invest + prop - debt, "cash": cash, "debt": debt, "investments": invest,
             "property": prop, "spent_month": m["spent"], "income_month": m["income"],
-            "tx_count": db.one("SELECT COUNT(*) AS n FROM transactions")["n"]}
+            "tx_count": db.one("SELECT COUNT(*) AS n FROM transactions")["n"], "unreviewed": review.count()}
 
 
 # ---------- static ----------
@@ -922,6 +1032,12 @@ def _startup():
             log.info("categorized %s transactions that had no category", n)
     except Exception:
         log.exception("startup categorization failed; continuing without it")
+    try:
+        if review.start():
+            log.info("review queue started; %s transactions wait in it", review.count())
+        tags.prune()
+    except Exception:
+        log.exception("starting the review queue failed; continuing without it")
     try:
         refreshed = places.refresh_if_stale()
         if refreshed is not None:
