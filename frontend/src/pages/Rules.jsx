@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { api, money, toast } from '../api'
 import { useCategories, categoryLabel, loadCategories, withIcon } from '../categories'
+import CatIcon from '../components/CatIcon'
 
 const inp = { height: 36, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg)', color: 'var(--text)', padding: '0 10px', fontSize: 13 }
 const btn = { height: 36, padding: '0 14px', borderRadius: 8, border: 0, background: 'var(--accent)', color: '#fff', fontWeight: 600, fontSize: 13 }
@@ -231,10 +232,10 @@ function CategoriesTab({ groups }) {
                       onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') setIconEdit(null) }}
                       aria-label={`Icon for ${c.name}`} style={{ ...inp, width: 48, height: 30, textAlign: 'center', padding: 0 }} />
                   ) : c.id === 'UNCATEGORIZED' ? (
-                    <span style={{ width: 32, fontSize: 18, textAlign: 'center' }}>{c.icon || '🏷️'}</span>
+                    <span style={{ width: 32, fontSize: 18, textAlign: 'center' }}><CatIcon icon={c.icon || '🏷️'} /></span>
                   ) : (
                     <button type="button" title="Change icon" onClick={() => setIconEdit({ id: c.id, icon: c.icon || '' })}
-                      style={{ width: 32, height: 30, border: 0, background: 'transparent', fontSize: 18, padding: 0 }}>{c.icon || '🏷️'}</button>
+                      style={{ width: 32, height: 30, border: 0, background: 'transparent', fontSize: 18, padding: 0 }}><CatIcon icon={c.icon || '🏷️'} /></button>
                   )}
                   {editing && editing.id === c.id ? (
                     <input autoFocus value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })}

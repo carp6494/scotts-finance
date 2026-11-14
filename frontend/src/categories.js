@@ -30,7 +30,13 @@ export function useCategories() {
 
 export const flatCategories = (groups) => groups.flatMap((g) => g.categories.map((c) => ({ ...c, group_name: g.group_name })))
 
-export const withIcon = (c) => (c?.icon ? `${c.icon} ` : '')
+// Icons with no emoji. The app draws them in CatIcon.jsx. Plain text places, such as a
+// dropdown list, cannot hold a drawing, so each one names the emoji that stands in there.
+export const DRAWN = { ':cannabis:': '🍁' }
+
+export const iconText = (icon) => DRAWN[icon] || icon
+
+export const withIcon = (c) => (c?.icon ? `${iconText(c.icon)} ` : '')
 
 export const categoryLabel = (groups, id) => {
   const c = flatCategories(groups).find((x) => x.id === id)

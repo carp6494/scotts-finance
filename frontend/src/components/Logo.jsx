@@ -1,4 +1,6 @@
-const TINTS = ['#2563eb', '#7c3aed', '#0891b2', '#db2777', '#d97706', '#16a34a', '#475569', '#9333ea']
+import CatIcon from './CatIcon'
+
+const TINTS =['#2563eb', '#7c3aed', '#0891b2', '#db2777', '#d97706', '#16a34a', '#475569', '#9333ea']
 
 // With no logo, show the category icon when one is passed, else the first letter of the name.
 export default function Logo({ src, name, size = 36, wide = false, home = false, icon = '' }) {
@@ -24,7 +26,7 @@ export default function Logo({ src, name, size = 36, wide = false, home = false,
   if (icon) {
     return (
       <span aria-hidden="true" style={{ width: size, height: size, borderRadius: radius, background: '#1e293b', border: '1px solid #334155', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size * 0.55, lineHeight: 1, flexShrink: 0 }}>
-        {icon}
+        <CatIcon icon={icon} size={size * 0.62} />
       </span>
     )
   }

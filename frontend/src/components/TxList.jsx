@@ -3,6 +3,7 @@ import { api, money, fullDate, toast } from '../api'
 import { useCategories, categoryLabel, flatCategories } from '../categories'
 import CategoryPicker from './CategoryPicker'
 import Logo from './Logo'
+import { CatLabel } from './CatIcon'
 import PlaceLine from './PlaceLine'
 
 const PAGE = 100
@@ -117,7 +118,7 @@ export default function TxList({ accountId, catId, spot, merchant, start, end, s
               {suggestion && suggestion.id === t.transaction_id && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, padding: '8px 16px 10px', fontSize: 13, color: 'var(--text2)', background: 'var(--hover)' }}>
                   <span style={{ flex: 1 }}>
-                    Always file <b>{suggestion.shown}</b> as <b>{categoryLabel(groups, suggestion.catId)}</b>? {suggestion.similar} past transaction{suggestion.similar === 1 ? '' : 's'} would change.
+                    Always file <b>{suggestion.shown}</b> as <b><CatLabel groups={groups} id={suggestion.catId} /></b>? {suggestion.similar} past transaction{suggestion.similar === 1 ? '' : 's'} would change.
                   </span>
                   <button type="button" onClick={makeRule} disabled={busy} className="press"
                     style={{ height: 30, padding: '0 12px', borderRadius: 8, border: 0, background: 'var(--accent)', color: '#fff', fontWeight: 600, fontSize: 12 }}>

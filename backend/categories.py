@@ -75,9 +75,12 @@ UNCAT_ICON = "❔"
 
 # Built-in categories Plaid does not have. Same shape as the seed rows: id, group, name, type, sort, icon.
 # Plaid never assigns these, so they are reached by rules or by hand.
+# An icon of the form ":name:" is a drawing the frontend supplies, for things with no emoji.
 EXTRAS = [
-    ("EXTRA_CANNABIS", "Shopping", "Cannabis", "expense", 50, "🌿"),
+    ("EXTRA_CANNABIS", "Shopping", "Cannabis", "expense", 50, ":cannabis:"),
 ]
+# Old default icons that a newer default replaces. A different icon was chosen by the owner and stays.
+REPLACED_ICONS = [("EXTRA_CANNABIS", "🌿", ":cannabis:")]
 
 ICONS = {
     "INCOME_DIVIDENDS": "💹", "INCOME_INTEREST_EARNED": "🏦", "INCOME_RETIREMENT_PENSION": "🧓", "INCOME_TAX_REFUND": "🧾",
@@ -174,6 +177,7 @@ def seed():
     rows = db.q("SELECT id, group_name FROM categories WHERE icon IS NULL OR icon=''")
     if rows:
         db.many("UPDATE categories SET icon=? WHERE id=?", [(default_icon(r["id"], r["group_name"]), r["id"]) for r in rows])
+    db.many("UPDATE categories SET icon=? WHERE id=? AND icon=?", [(new, cat_id, old) for cat_id, old, new in REPLACED_ICONS])
 
 
 def ensure(code):

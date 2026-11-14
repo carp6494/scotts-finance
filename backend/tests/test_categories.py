@@ -98,6 +98,15 @@ def test_grouped_includes_icon(fresh):
 
 def test_seed_includes_extras(fresh):
     row = db.one("SELECT * FROM categories WHERE id='EXTRA_CANNABIS'")
-    assert row["group_name"] == "Shopping" and row["name"] == "Cannabis" and row["icon"] == "🌿" and row["type"] == "expense"
+    assert row["group_name"] == "Shopping" and row["name"] == "Cannabis" and row["icon"] == ":cannabis:" and row["type"] == "expense"
     categories.seed()
     assert db.one("SELECT COUNT(*) AS n FROM categories WHERE name='Cannabis'")["n"] == 1
+
+
+def test_seed_replaces_old_default_icon_only(fresh):
+    db.run("UPDATE categories SET icon='🌿' WHERE id='EXTRA_CANNABIS'")
+    categories.seed()
+    assert db.one("SELECT icon FROM categories WHERE id='EXTRA_CANNABIS'")["icon"] == ":cannabis:"
+    db.run("UPDATE categories SET icon='🍁' WHERE id='EXTRA_CANNABIS'")
+    categories.seed()
+    assert db.one("SELECT icon FROM categories WHERE id='EXTRA_CANNABIS'")["icon"] == "🍁"

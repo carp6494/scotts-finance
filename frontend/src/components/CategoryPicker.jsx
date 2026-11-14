@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '../api'
-import { useCategories, flatCategories, loadCategories, withIcon } from '../categories'
+import { useCategories, flatCategories, loadCategories } from '../categories'
+import CatIcon from './CatIcon'
 
 const inp = { height: 32, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg)', color: 'var(--text)', padding: '0 8px', fontSize: 13 }
 
@@ -78,7 +79,7 @@ export default function CategoryPicker({ value, onChange, compact = false }) {
         <button type="button" onClick={toggle} className="press" title="Change category"
           aria-haspopup="listbox" aria-expanded={open}
           style={{ font: 'inherit', fontSize: compact ? 11 : 12, lineHeight: 1.4, color: 'var(--text2)', background: 'var(--hover)', border: '1px solid var(--line)', borderRadius: 999, padding: '1px 9px', whiteSpace: 'nowrap' }}>
-          {current ? `${withIcon(current)}${current.group_name} · ${current.name}` : '❔ Uncategorized'}
+          {current ? <>{current.icon ? <><CatIcon icon={current.icon} /> </> : null}{current.group_name} · {current.name}</> : '❔ Uncategorized'}
         </button>
       </span>
       {open && createPortal(
@@ -92,7 +93,7 @@ export default function CategoryPicker({ value, onChange, compact = false }) {
               {g.items.map((c) => (
                 <button key={c.id} type="button" onClick={() => pick(c.id)}
                   style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 8px', borderRadius: 6, border: 0, background: c.id === value ? 'var(--active)' : 'transparent', color: 'var(--text)', fontSize: 13 }}>
-                  {withIcon(c)}{c.name}{c.custom ? <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--muted)' }}>custom</span> : null}
+                  {c.icon ? <><CatIcon icon={c.icon} /> </> : null}{c.name}{c.custom ? <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--muted)' }}>custom</span> : null}
                 </button>
               ))}
             </div>
