@@ -26,6 +26,8 @@ Let the owner label transactions with tags, and give new transactions one place 
 
 ## Review queue
 
+Changed on 2026-11-16: the queue moved into the Transactions page. See `2026-11-16-review-in-transactions-design.md`.
+
 - A transaction waits in the queue when `reviewed` is 0 and it is not pending.
 - New rows from a sync or a CSV import arrive unreviewed.
 - A bank's first sync brings up to two years of history. Those rows are marked reviewed.

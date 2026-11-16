@@ -75,3 +75,6 @@ export const fullDate = (s) => {
 }
 export const titleCase = (s) => (s || '').toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()).replace(/\bApr\b/g, 'APR')
 export const toast = (msg) => window.dispatchEvent(new CustomEvent('toast', { detail: msg }))
+// One transaction row changed. detail is { id, fields }, { all: true, fields }, or { reload: true }.
+// Every TxList on the page listens, so the new box and the full list stay in step.
+export const txChanged = (detail) => window.dispatchEvent(new CustomEvent('tx-changed', { detail }))

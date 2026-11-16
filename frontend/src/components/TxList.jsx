@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { api, money, fullDate, toast } from '../api'
+import { api, money, fullDate, toast, txChanged } from '../api'
 import { useCategories, categoryLabel, flatCategories } from '../categories'
 import CategoryPicker from './CategoryPicker'
 import Logo from './Logo'
@@ -9,8 +9,9 @@ import TagPills from './TagPills'
 
 const PAGE = 100
 
-// review: show a "Reviewed" button on each row and take the review keys. unreviewed: list only rows that wait for review.
-export default function TxList({ accountId, catId, tagId, spot, merchant, start, end, spendingOnly = false, showAccount = true, compact = false, refreshKey = 0, onChanged, unreviewed = false, review = false, empty = 'No transactions yet.' }) {
+// review: a "Reviewed" button on each row, and the review keys after a click on a row. unreviewed: only rows that wait for review.
+// search: show the search box. maxHeight: the row area scrolls past this height.
+export default function TxList({ accountId, catId, tagId, spot, merchant, start, end, spendingOnly = false, showAccount = true, compact = false, refreshKey = 0, onChanged, unreviewed = false, review = false, search = true, maxHeight, empty = 'No transactions yet.' }) {
   const [q, setQ] = useState('')
   const [rows, setRows] = useState([])
   const [total, setTotal] = useState(0)
@@ -20,6 +21,7 @@ export default function TxList({ accountId, catId, tagId, spot, merchant, start,
   const timer = useRef(null)
   const seq = useRef(0)
   const [cur, setCur] = useState(0)
+  const [armed, setArmed] = useState(false)
   const box = useRef(null)
   const live = useRef({})
   const groups = useCategories()
@@ -54,7 +56,7 @@ export default function TxList({ accountId, catId, tagId, spot, merchant, start,
   const setCategory = async (t, newCatId) => {
     try {
       const r = await api.patchTransaction(t.transaction_id, { cat_id: newCatId })
-      setRows((prev) => prev.map((x) => (x.transaction_id === t.transaction_id ? { ...x, ...r } : x)))
+      txChanged({ id: t.transaction_id, fields: r })
       const merchant = t.merchant_name || t.name
       const shown = t.display_name || merchant
       setSuggestion(r.similar > 0 ? { id: t.transaction_id, merchant, shown, catId: newCatId, similar: r.similar } : null)
@@ -63,7 +65,7 @@ export default function TxList({ accountId, catId, tagId, spot, merchant, start,
   }
 
   const setTags = (t, tags) => {
-    setRows((prev) => prev.map((x) => (x.transaction_id === t.transaction_id ? { ...x, tags } : x)))
+    txChanged({ id: t.transaction_id, fields: { tags } })
     onChanged && onChanged()
   }
 
@@ -71,23 +73,45 @@ export default function TxList({ accountId, catId, tagId, spot, merchant, start,
     if (!t) return
     try {
       await api.patchTransaction(t.transaction_id, { reviewed: true })
-      setRows((prev) => prev.filter((x) => x.transaction_id !== t.transaction_id))
-      setTotal((n) => Math.max(0, n - 1))
       if (suggestion && suggestion.id === t.transaction_id) setSuggestion(null)
+      txChanged({ id: t.transaction_id, fields: { reviewed: 1 } })
       onChanged && onChanged()
     } catch (e) { toast(e.message) }
   }
 
-  // Review keys: arrows move, Enter marks reviewed, C opens the category picker, T opens the tag box.
-  live.current = { rows, cur, markReviewed }
+  live.current = { rows, cur, armed, q, load, markReviewed }
   useEffect(() => { if (cur > 0 && cur >= rows.length) setCur(Math.max(0, rows.length - 1)) }, [rows.length, cur])
+
+  // Every list hears every row change. A list of waiting rows drops a row once it is reviewed.
+  useEffect(() => {
+    const onChange = (e) => {
+      const { id, all, fields, reload } = e.detail || {}
+      const now = live.current
+      if (reload) { now.load(0, now.q, Math.max(PAGE, now.rows.length)); return }
+      const hit = (x) => all || x.transaction_id === id
+      if (unreviewed && fields.reviewed) {
+        const gone = now.rows.filter(hit).length
+        setRows((prev) => prev.filter((x) => !hit(x)))
+        setTotal((n) => Math.max(0, n - gone))
+      } else {
+        setRows((prev) => prev.map((x) => (hit(x) ? { ...x, ...fields } : x)))
+      }
+    }
+    window.addEventListener('tx-changed', onChange)
+    return () => window.removeEventListener('tx-changed', onChange)
+  }, [unreviewed])
+
+  // Review keys: arrows move, Enter marks reviewed, C opens the category picker, T opens the tag box, Esc stops.
+  // They work only after a click on a row, so until then the arrow keys scroll the page.
   useEffect(() => {
     if (!review) return
     const rowEl = (i) => box.current && box.current.querySelector(`[data-row="${i}"]`)
     const onKey = (e) => {
       const el = e.target
+      if (!live.current.armed) return
       if (e.ctrlKey || e.metaKey || e.altKey) return
       if (el && (['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || el.isContentEditable)) return
+      if (e.key === 'Escape') { setArmed(false); return }
       const { rows: list, cur: at, markReviewed: mark } = live.current
       if (!list.length) return
       const k = e.key.length === 1 ? e.key.toLowerCase() : e.key
@@ -107,8 +131,14 @@ export default function TxList({ accountId, catId, tagId, spot, merchant, start,
         if (button) { e.preventDefault(); button.click() }
       }
     }
+    // A click elsewhere on the page turns the keys off. Popovers are portals outside <main>, so picking a category keeps them on.
+    const onDown = (e) => {
+      const el = e.target
+      if (box.current && !box.current.contains(el) && el.closest && el.closest('main')) setArmed(false)
+    }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('mousedown', onDown)
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('mousedown', onDown) }
   }, [review])
 
   const makeRule = async () => {
@@ -124,13 +154,14 @@ export default function TxList({ accountId, catId, tagId, spot, merchant, start,
       })
       toast(`Rule saved. ${r.changed} past transaction${r.changed === 1 ? '' : 's'} updated.`)
       setSuggestion(null)
-      load(0, q)
+      txChanged({ reload: true })
       onChanged && onChanged()
     } catch (e) { toast(e.message) } finally { setBusy(false) }
   }
 
   return (
     <div>
+      {search && (
       <label style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 8, padding: '0 12px', height: 40, marginBottom: 10 }}>
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true" style={{ color: 'var(--muted)' }}><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
         <span className="sr-only">Search transactions</span>
@@ -138,15 +169,17 @@ export default function TxList({ accountId, catId, tagId, spot, merchant, start,
           style={{ flex: 1, background: 'transparent', border: 0, outline: 'none', color: 'var(--text)', fontSize: 14 }} />
         <span style={{ fontSize: 12, color: 'var(--muted)' }}>{total.toLocaleString()} total</span>
       </label>
-      <div ref={box} style={{ border: '1px solid var(--line)', borderRadius: 12 }}>
+      )}
+      <div ref={box} style={{ border: '1px solid var(--line)', borderRadius: 12, maxHeight, overflowY: maxHeight ? 'auto' : undefined }}>
         {rows.map((t, i) => {
           const quiet = t.excluded || t.is_transfer || t.cat_type === 'transfer'
           return (
             <div key={t.transaction_id}>
-              <div className="rise" data-row={i} onClick={review ? () => setCur(i) : undefined} style={{
+              {/* Rows in a scrolling box skip the rise animation. Its slide would flash a scrollbar. */}
+              <div className={maxHeight ? undefined : 'rise'} data-row={i} onClick={review ? () => { setCur(i); setArmed(true) } : undefined} style={{
                 display: 'flex', alignItems: 'center', gap: 12, padding: compact ? '9px 14px' : '11px 16px',
                 borderTop: i ? '1px solid var(--line2)' : 0, animationDelay: `${Math.min(i, 20) * 0.025}s`,
-                ...(review && i === cur ? { background: 'var(--hover)', boxShadow: 'inset 3px 0 0 var(--accent)' } : null),
+                ...(review && armed && i === cur ? { background: 'var(--hover)', boxShadow: 'inset 3px 0 0 var(--accent)' } : null),
               }}>
                 <span style={{ width: 86, fontSize: 12, color: 'var(--muted)', flexShrink: 0, whiteSpace: 'nowrap' }}>{fullDate(t.date)}</span>
                 <Logo src={t.logo} name={t.merchant_name || t.name} size={compact ? 28 : 32} icon={icons[t.cat_id] || '❔'} />
@@ -155,6 +188,7 @@ export default function TxList({ accountId, catId, tagId, spot, merchant, start,
                   <span style={{ display: 'block', fontSize: 14, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: quiet ? 'var(--muted)' : undefined }}>
                     {t.display_name || t.merchant_name || t.name}
                     {t.pending ? <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--warn)' }}>Pending</span> : null}
+                    {!review && !t.reviewed && !t.pending ? <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 600, color: 'var(--info)' }}>New</span> : null}
                     {t.excluded ? <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--muted)' }}>Excluded</span> : null}
                     {t.is_transfer ? <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--muted)' }}>Transfer</span> : null}
                   </span>
@@ -165,7 +199,7 @@ export default function TxList({ accountId, catId, tagId, spot, merchant, start,
                   </span>
                   {compact
                     ? (t.place_city ? <span style={{ display: 'block', marginTop: 2, fontSize: 11, color: 'var(--muted2)' }}>{t.place_source === 'hq' ? '🏢' : '📍'} {t.place_city}{t.place_region ? ', ' + t.place_region : ''}</span> : null)
-                    : <span style={{ display: 'block', marginTop: 2 }}><PlaceLine t={t} onSaved={() => { load(0, q, Math.max(PAGE, rows.length)); onChanged && onChanged() }} /></span>}
+                    : <span style={{ display: 'block', marginTop: 2 }}><PlaceLine t={t} onSaved={() => { txChanged({ reload: true }); onChanged && onChanged() }} /></span>}
                 </span>
                 <span className="num" style={{ fontSize: 14, fontWeight: 600, color: quiet ? 'var(--muted)' : t.display_amount > 0 ? 'var(--pos)' : 'var(--text)' }}>
                   {t.display_amount > 0 ? '+' : ''}{money(t.display_amount)}
