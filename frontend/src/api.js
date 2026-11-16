@@ -57,6 +57,13 @@ export const api = {
   tagTransaction: (id, name) => req('POST', `/api/transactions/${encodeURIComponent(id)}/tags`, { name }),
   untagTransaction: (id, tagId) => req('DELETE', `/api/transactions/${encodeURIComponent(id)}/tags/${tagId}`),
   reviewAll: () => req('POST', '/api/review/all'),
+  saveSplits: (id, lines) => req('PUT', `/api/transactions/${encodeURIComponent(id)}/splits`, { lines }),
+  unsplit: (id, force) => req('DELETE', `/api/transactions/${encodeURIComponent(id)}/splits${force ? '?force=1' : ''}`),
+  owed: () => req('GET', '/api/owed'),
+  owedPayments: (splitId) => req('GET', `/api/owed/${splitId}/payments`),
+  linkPayback: (splitId, body) => req('POST', `/api/owed/${splitId}/payback`, body),
+  unlinkPayback: (id) => req('DELETE', `/api/paybacks/${id}`),
+  dismissPayback: (splitId, paymentId) => req('POST', `/api/owed/${splitId}/dismiss`, { payment_id: paymentId }),
 }
 
 const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })

@@ -42,7 +42,7 @@ def lookup():
 def fresh():
     """Empty every table the engine touches, then reseed categories."""
     for t in ("transactions", "rules", "merchant_memory", "merchant_places", "categories", "accounts",
-              "tags", "transaction_tags", "removed_tags"):
+              "tags", "transaction_tags", "removed_tags", "splits", "paybacks", "payback_dismissed"):
         db.run(f"DELETE FROM {t}")
     import categories
     categories.seed()

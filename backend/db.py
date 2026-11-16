@@ -149,6 +149,31 @@ CREATE TABLE IF NOT EXISTS removed_tags (
   tag_id INTEGER NOT NULL,
   PRIMARY KEY (transaction_id, tag_id)
 );
+CREATE TABLE IF NOT EXISTS splits (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  transaction_id TEXT NOT NULL,
+  seq INTEGER NOT NULL DEFAULT 0,
+  amount REAL NOT NULL,
+  cat_id TEXT,
+  owed_by TEXT,
+  note TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_splits_tx ON splits(transaction_id);
+CREATE TABLE IF NOT EXISTS paybacks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  split_id INTEGER NOT NULL,
+  payment_id TEXT,
+  amount REAL NOT NULL,
+  cash INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS ix_paybacks_split ON paybacks(split_id);
+CREATE INDEX IF NOT EXISTS ix_paybacks_payment ON paybacks(payment_id);
+CREATE TABLE IF NOT EXISTS payback_dismissed (
+  split_id INTEGER NOT NULL,
+  payment_id TEXT NOT NULL,
+  PRIMARY KEY (split_id, payment_id)
+);
 """
 
 
@@ -192,6 +217,14 @@ for _table, _col in _ADDED_COLUMNS:
         if "duplicate column" not in str(e).lower():
             raise
 _con.execute("CREATE INDEX IF NOT EXISTS ix_tx_cat ON transactions(cat_id)")
+# One row per line: a transaction with no splits is one line, a split transaction gives one line per split.
+# Rebuilt at every start so a change here reaches existing databases.
+_con.executescript("""DROP VIEW IF EXISTS tx_lines;
+CREATE VIEW tx_lines AS
+  SELECT t.transaction_id, t.cat_id, t.amount, NULL AS owed_by, NULL AS split_id FROM transactions t
+  WHERE NOT EXISTS (SELECT 1 FROM splits s WHERE s.transaction_id=t.transaction_id)
+  UNION ALL
+  SELECT s.transaction_id, s.cat_id, s.amount, s.owed_by, s.id FROM splits s;""")
 _con.commit()
 
 

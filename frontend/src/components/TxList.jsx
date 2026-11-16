@@ -6,6 +6,7 @@ import Logo from './Logo'
 import { CatLabel } from './CatIcon'
 import PlaceLine from './PlaceLine'
 import TagPills from './TagPills'
+import SplitEditor, { SplitLines } from './SplitEditor'
 
 const PAGE = 100
 
@@ -22,6 +23,7 @@ export default function TxList({ accountId, catId, tagId, spot, merchant, start,
   const seq = useRef(0)
   const [cur, setCur] = useState(0)
   const [armed, setArmed] = useState(false)
+  const [splitting, setSplitting] = useState(null)
   const box = useRef(null)
   const live = useRef({})
   const groups = useCategories()
@@ -191,9 +193,11 @@ export default function TxList({ accountId, catId, tagId, spot, merchant, start,
                     {!review && !t.reviewed && !t.pending ? <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 600, color: 'var(--info)' }}>New</span> : null}
                     {t.excluded ? <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--muted)' }}>Excluded</span> : null}
                     {t.is_transfer ? <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--muted)' }}>Transfer</span> : null}
+                    {t.payback_from ? <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--pos)' }}>Payback from {t.payback_from}</span> : null}
                   </span>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap' }}>
-                    <CategoryPicker value={t.cat_id} compact={compact} onChange={(id) => setCategory(t, id)} />
+                    <CategoryPicker value={t.cat_id} compact={compact} onChange={(id) => setCategory(t, id)}
+                      splitCount={t.splits?.length || 0} onSplit={t.pending ? undefined : () => setSplitting(t.transaction_id)} />
                     <TagPills t={t} compact={compact} onChange={(tags) => setTags(t, tags)} />
                     {showAccount && t.account_name ? <span>{t.account_name}{t.mask ? ' ' + t.mask : ''}</span> : null}
                   </span>
@@ -211,6 +215,8 @@ export default function TxList({ accountId, catId, tagId, spot, merchant, start,
                   </button>
                 )}
               </div>
+              {t.splits?.length > 0 && splitting !== t.transaction_id && <SplitLines t={t} groups={groups} />}
+              {splitting === t.transaction_id && <SplitEditor t={t} onClose={() => setSplitting(null)} onChanged={onChanged} />}
               {suggestion && suggestion.id === t.transaction_id && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, padding: '8px 16px 10px', fontSize: 13, color: 'var(--text2)', background: 'var(--hover)' }}>
                   <span style={{ flex: 1 }}>

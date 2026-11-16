@@ -16,6 +16,7 @@ Scott's Finance App\
     auth.py              TOTP sign-in (pyotp), sessions, settings table
     tags.py              tags on transactions, colors, removed-tag memory
     review.py            review queue: what waits, the one-time start
+    splits.py            splits and money owed back: lines, paybacks, suggestions
     maintenance.py       daily backup + 7-year purge
   frontend\              React 19 + Vite 7 + Tailwind 4 + motion + react-plaid-link
     src\api.js           fetch wrappers for every endpoint, money/date/title helpers, 401 -> 'auth-required' event
@@ -44,6 +45,10 @@ Scott's Finance App\
 | `tags` | Tag name and color |
 | `transaction_tags` | Which tags a transaction carries, and whether a rule or the owner added each |
 | `removed_tags` | Tags the owner took off a transaction, so a rule does not add them back |
+| `splits` | Lines of a split transaction: amount and a category, or a person who owes that part |
+| `paybacks` | What a person paid back on an owed line: from a deposit, or cash |
+| `payback_dismissed` | Suggested deposit and owed line pairs the owner turned down |
+| `tx_lines` (view) | One row per line: an unsplit transaction as one line, a split transaction as its lines. Totals read it |
 
 The DB runs in WAL mode. Migrations are additive `ALTER TABLE ... ADD COLUMN` statements guarded in `db.py`.
 
@@ -73,11 +78,17 @@ The DB runs in WAL mode. Migrations are additive `ALTER TABLE ... ADD COLUMN` st
 | POST | /accounts/{id}/import | CSV import, dedupe by sha1(account,date,amount,desc,occurrence) |
 | PATCH | /accounts/{id}/terms | {apr, limit_amt, min_payment} overrides |
 | GET | /debts | debts for the payoff planner |
-| GET | /transactions | q, account_id, cat_id, tag_id, unreviewed, paging; adds display_amount and tags |
+| GET | /transactions | q, account_id, cat_id, tag_id, unreviewed, paging; adds display_amount, tags, splits, split_off, payback_from |
 | GET / POST | /tags | list with counts and the color list; make a tag |
 | PATCH / DELETE | /tags/{id} | rename, recolor, delete |
 | POST / DELETE | /transactions/{id}/tags, /transactions/{id}/tags/{tag_id} | add or remove one tag |
 | POST | /review/all | mark every waiting transaction reviewed |
+| PUT / DELETE | /transactions/{id}/splits | replace all lines; unsplit, `force=1` also removes paybacks |
+| GET | /owed | open owed items by person, total, suggestions, paid back lately, names |
+| GET | /owed/{split_id}/payments | deposits that can pay an owed item |
+| POST | /owed/{split_id}/payback | link {payment_id} or {cash: true} |
+| POST | /owed/{split_id}/dismiss | turn down a suggested {payment_id} |
+| DELETE | /paybacks/{id} | unlink a payback |
 | GET | /summary | KPI totals for the dashboard |
 
 `/logos/*` is served from `data/logos`; everything else serves the SPA from `frontend/dist`.
@@ -90,6 +101,7 @@ The DB runs in WAL mode. Migrations are additive `ALTER TABLE ... ADD COLUMN` st
 - **Map squares:** `tiles.py` serves `GET /api/tiles/{source}/{z}/{x}/{y}` for `imagery`, `hybrid`, `dem` and `buildings`. It fetches from USGS, Terrain Tiles on AWS Open Data, or OpenFreeMap, saves the square under `data/tiles`, and serves it from disk after that. `GET / PUT /api/settings/map` holds the three switches. `DELETE /api/settings/map/saved` empties the folder.
 - **Tags:** `tags.py` stores them. A rule can add tags through `tag_ids` in its actions; `rules.apply_tags` runs after categorizing, covers rows the owner categorized by hand, and skips any tag the owner removed from that row.
 - **Review queue:** a transaction waits while `reviewed` is 0 and it is not pending. `review.start` runs once and marks everything already stored as reviewed, except the newest five. A bank's first sync is marked reviewed. `components/NewTransactions.jsx` shows the queue at the top of the Transactions page. Its keys work after a click on a row. The sidebar count sits on Transactions. A `tx-changed` window event carries row changes so every `TxList` on the page stays in step.
+- **Splits:** lines live in `splits`; the bank row is untouched. Totals and the category filter read the `tx_lines` view. Category rules skip split rows. After a sync, `splits.prune` drops lines of deleted rows and `splits.check` sends rows whose amount changed back to review. Owed lines name a person; `paybacks` link deposits or cash. A linked deposit does not count as income. `components/SplitEditor.jsx` opens from "Split" in the category picker. `components/OwedBox.jsx` sits on Transactions below the new box and is always shown.
 - **Shop icons:** `site_icons.py` fetches a website's icon in the background for merchants with no other logo.
 - **Plaid:** Link opens in the browser and the public token is exchanged. The access token is encrypted and stored. `transactions_sync` runs with a cursor and retries on `TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION`. After that, accounts, liabilities and holdings are pulled and the institution logo is saved once. When Plaid reports `ITEM_LOGIN_REQUIRED`, a reconnect banner opens Link in update mode.
 - **Timers:** Auto sync runs every 6 hours (started at startup). Daily maintenance backs up to `backups/` (keeping 30) and purges transactions older than 7 years.

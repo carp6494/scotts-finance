@@ -5,6 +5,7 @@ import { useTags } from '../tags'
 import Odometer from '../components/Odometer'
 import TxList from '../components/TxList'
 import NewTransactions from '../components/NewTransactions'
+import OwedBox from '../components/OwedBox'
 
 const sel = { height: 36, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--text)', padding: '0 8px' }
 
@@ -32,6 +33,7 @@ export default function Transactions({ summary, accounts, refreshKey, onChanged 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <NewTransactions waiting={s.unreviewed || 0} refreshKey={refreshKey} onChanged={onChanged} />
+      <OwedBox refreshKey={refreshKey} onChanged={onChanged} />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
         {[['Spent this month', t.spent_month], ['Income this month', t.income_month]].map(([l, v], i) => (
           <div key={l} className="card rise" style={{ padding: '14px 18px', animationDelay: `${i * 0.06}s` }}>

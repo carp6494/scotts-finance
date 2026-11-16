@@ -31,6 +31,7 @@ import places  # noqa: E402
 import site_icons  # noqa: E402
 import review  # noqa: E402
 import tags  # noqa: E402
+import splits  # noqa: E402
 import tiles  # noqa: E402
 from fastapi import Request, Response  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
@@ -588,15 +589,17 @@ def transactions(account_id: str | None = None, q: str | None = None, cat_id: st
         where.append("t.account_id=?")
         args.append(account_id)
     if cat_id:
-        where.append("t.cat_id=?")
+        where.append("EXISTS (SELECT 1 FROM tx_lines l WHERE l.transaction_id=t.transaction_id AND l.cat_id=?)")
         args.append(cat_id)
     if spending_only:
         where.append("COALESCE(t.excluded,0)=0 AND COALESCE(t.is_transfer,0)=0 AND COALESCE(c.type,'expense') != 'transfer'")
     if q:
-        where.append("(LOWER(COALESCE(t.display_name,'')||' '||COALESCE(t.merchant_name,'')||' '||COALESCE(t.name,'')||' '||COALESCE(c.name,'')||' '||COALESCE(c.group_name,'')) LIKE ?"
+        where.append("(LOWER(COALESCE(t.display_name,'')||' '||COALESCE(t.merchant_name,'')||' '||COALESCE(t.name,'')) LIKE ?"
+                     " OR EXISTS (SELECT 1 FROM tx_lines l JOIN categories c2 ON c2.id=l.cat_id"
+                     " WHERE l.transaction_id=t.transaction_id AND LOWER(c2.name||' '||c2.group_name) LIKE ?)"
                      " OR EXISTS (SELECT 1 FROM transaction_tags x JOIN tags g ON g.id=x.tag_id"
                      " WHERE x.transaction_id=t.transaction_id AND LOWER(g.name) LIKE ?))")
-        args += [f"%{q.lower()}%"] * 2
+        args += [f"%{q.lower()}%"] * 3
     w = " AND ".join(where)
     frm = "FROM transactions t LEFT JOIN accounts a ON a.account_id=t.account_id LEFT JOIN categories c ON c.id=t.cat_id"
     total = db.one(f"SELECT COUNT(*) AS n {frm} WHERE {w}", args)["n"]
@@ -608,8 +611,13 @@ def transactions(account_id: str | None = None, q: str | None = None, cat_id: st
                     a.name AS account_name, a.mask
                     {frm} WHERE {w} ORDER BY t.date DESC, t.transaction_id LIMIT ? OFFSET ?""", args + [min(limit, 500), offset])
     tagged = tags.for_transactions([r["transaction_id"] for r in rows])
+    ids = [r["transaction_id"] for r in rows]
+    split_lines, paid_by = splits.for_transactions(ids), splits.payback_names(ids)
     for r in rows:
         r["tags"] = tagged.get(r["transaction_id"], [])
+        r["splits"] = split_lines.get(r["transaction_id"], [])
+        r["split_off"] = splits.off_by(r["amount"], r["splits"])
+        r["payback_from"] = paid_by.get(r["transaction_id"])
         r["logo"] = logos.merchant_logo(r["merchant_name"] or r["name"], r.pop("logo_url"), r.pop("website") or r.pop("place_website"))
         r.pop("place_website", None)
         r["display_amount"] = -(r["amount"] or 0)  # Plaid: positive = money out
@@ -742,6 +750,82 @@ def untag_transaction(transaction_id: str, tag_id: int):
 @app.post("/api/review/all")
 def review_all():
     return {"marked": review.mark_all()}
+
+
+# ---------- splits and money owed back ----------
+
+class SplitLine(BaseModel):
+    amount: float
+    cat_id: str | None = None
+    owed_by: str | None = None
+    note: str | None = None
+
+
+class SplitReq(BaseModel):
+    lines: list[SplitLine]
+
+
+class PaybackReq(BaseModel):
+    payment_id: str | None = None
+    cash: bool = False
+
+
+class DismissReq(BaseModel):
+    payment_id: str
+
+
+def _split_call(fn, *a, **kw):
+    """Run a splits function and turn its errors into the right status code."""
+    try:
+        return fn(*a, **kw)
+    except splits.PaybackLinked as e:
+        raise HTTPException(409, str(e))
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.put("/api/transactions/{transaction_id}/splits")
+def save_splits(transaction_id: str, req: SplitReq):
+    _split_call(splits.save, transaction_id, [line.model_dump() for line in req.lines])
+    row = db.one("SELECT amount FROM transactions WHERE transaction_id=?", (transaction_id,))
+    out = splits.for_transactions([transaction_id]).get(transaction_id, [])
+    return {"splits": out, "split_off": splits.off_by(row["amount"], out)}
+
+
+@app.delete("/api/transactions/{transaction_id}/splits")
+def unsplit_transaction(transaction_id: str, force: int = 0):
+    _tx_or_404(transaction_id)
+    _split_call(splits.unsplit, transaction_id, bool(force))
+    return {"ok": True}
+
+
+@app.get("/api/owed")
+def owed():
+    return splits.owed()
+
+
+@app.get("/api/owed/{split_id}/payments")
+def owed_payments(split_id: int):
+    return {"payments": _split_call(splits.payments, split_id)}
+
+
+@app.post("/api/owed/{split_id}/payback")
+def owed_payback(split_id: int, req: PaybackReq):
+    return _split_call(splits.link, split_id, req.payment_id, req.cash)
+
+
+@app.delete("/api/paybacks/{payback_id}")
+def delete_payback(payback_id: int):
+    _split_call(splits.unlink, payback_id)
+    return {"ok": True}
+
+
+@app.post("/api/owed/{split_id}/dismiss")
+def owed_dismiss(split_id: int, req: DismissReq):
+    _split_call(splits.dismiss, split_id, req.payment_id)
+    return {"ok": True}
 
 
 # ---------- rules ----------
@@ -972,15 +1056,19 @@ def summary(account_id: str | None = None, cat_id: str | None = None, tag_id: in
     if account_id:
         where.append("t.account_id=?"); args.append(account_id)
     if cat_id:
-        where.append("t.cat_id=?"); args.append(cat_id)
+        where.append("l.cat_id=?"); args.append(cat_id)
     if tag_id:
         where.append("EXISTS (SELECT 1 FROM transaction_tags x WHERE x.transaction_id=t.transaction_id AND x.tag_id=?)")
         args.append(tag_id)
-    m = db.one(f"""SELECT COALESCE(SUM(CASE WHEN t.amount>0 AND COALESCE(c.type,'expense')='expense' THEN t.amount END),0) AS spent,
-                          COALESCE(SUM(CASE WHEN t.amount<0 AND c.type='income' THEN -t.amount END),0) AS income
-                   FROM transactions t LEFT JOIN categories c ON c.id=t.cat_id WHERE {' AND '.join(where)}""", args)
+    # Totals add up lines: a split transaction counts once per line. Owed lines are not spending,
+    # and a deposit linked as a payback is not income.
+    m = db.one(f"""SELECT COALESCE(SUM(CASE WHEN l.amount>0 AND l.owed_by IS NULL AND COALESCE(c.type,'expense')='expense' THEN l.amount END),0) AS spent,
+                          COALESCE(SUM(CASE WHEN l.amount<0 AND c.type='income'
+                                            AND NOT EXISTS (SELECT 1 FROM paybacks p WHERE p.payment_id=t.transaction_id) THEN -l.amount END),0) AS income
+                   FROM tx_lines l JOIN transactions t ON t.transaction_id=l.transaction_id LEFT JOIN categories c ON c.id=l.cat_id
+                   WHERE {' AND '.join(where)}""", args)
     return {"net_worth": cash + invest + prop - debt, "cash": cash, "debt": debt, "investments": invest,
-            "property": prop, "spent_month": m["spent"], "income_month": m["income"],
+            "property": prop, "spent_month": round(m["spent"], 2), "income_month": round(m["income"], 2),
             "tx_count": db.one("SELECT COUNT(*) AS n FROM transactions")["n"], "unreviewed": review.count()}
 
 
@@ -1036,6 +1124,7 @@ def _startup():
         if review.start():
             log.info("review queue started; %s transactions wait in it", review.count())
         tags.prune()
+        splits.prune()
     except Exception:
         log.exception("starting the review queue failed; continuing without it")
     try:

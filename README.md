@@ -13,6 +13,7 @@ I built it for myself. You can run it too, but you need your own Plaid developer
 - Transactions page with search and filters for account, category, and tag
 - Tags: label any transaction, by hand or with a rule
 - New transactions wait in a box at the top of Transactions until you check them
+- Split a charge across categories, or mark part of it owed back by someone and link their payback
 - Map page: a 3D map of the United States with a bar for each business you paid, in outline, satellite, hybrid, or terrain style, and a world heatmap
 - Finds where each purchase happened: the bank's address, a local business lookup, the zip or city center, or the company headquarters
 - Debt payoff page
