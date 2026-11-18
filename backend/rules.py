@@ -6,6 +6,7 @@ Order for every transaction the user has not set by hand:
   3. the Plaid category, inserting a category row if it is new
   4. UNCATEGORIZED
 A split transaction is skipped: its lines carry the categories.
+A row linked as a transfer is skipped: the link set its category.
 """
 import json
 import logging
@@ -88,7 +89,8 @@ def _load_rules(known):
 def _rows(transaction_ids):
     base = ("SELECT transaction_id, account_id, date, amount, name, merchant_name, display_name, category, "
             "category_detail, cat_id, cat_source, excluded, is_transfer FROM transactions "
-            "WHERE COALESCE(cat_source,'') != 'user' AND transaction_id NOT IN (SELECT transaction_id FROM splits)")
+            "WHERE COALESCE(cat_source,'') != 'user' AND transaction_id NOT IN (SELECT transaction_id FROM splits) "
+            "AND transaction_id NOT IN (SELECT out_id FROM transfers UNION ALL SELECT in_id FROM transfers)")
     if transaction_ids is None:
         return db.q(base)
     ids = list(dict.fromkeys(transaction_ids))
@@ -150,7 +152,8 @@ def categorize(transaction_ids=None) -> int:
     if updates:
         db.many("""UPDATE transactions SET cat_id=?, cat_source=?, excluded=?, is_transfer=?, display_name=?
                    WHERE transaction_id=? AND COALESCE(cat_source,'') != 'user'
-                   AND transaction_id NOT IN (SELECT transaction_id FROM splits)""", updates)
+                   AND transaction_id NOT IN (SELECT transaction_id FROM splits)
+                   AND transaction_id NOT IN (SELECT out_id FROM transfers UNION ALL SELECT in_id FROM transfers)""", updates)
     changed = {u[-1] for u in updates} | apply_tags(loaded, transaction_ids, matched_rules)
     db.run("""UPDATE rules SET hits = COALESCE(
                 (SELECT c FROM (SELECT cat_source AS s, COUNT(*) AS c FROM transactions GROUP BY cat_source) WHERE s = 'rule:' || rules.id), 0)""")

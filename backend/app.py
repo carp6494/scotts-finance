@@ -32,6 +32,7 @@ import site_icons  # noqa: E402
 import review  # noqa: E402
 import tags  # noqa: E402
 import splits  # noqa: E402
+import transfers  # noqa: E402
 import tiles  # noqa: E402
 from fastapi import Request, Response  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
@@ -404,9 +405,15 @@ def _num(s):
     return -v if neg else v
 
 
+DUP_DAYS = 2  # an imported row this close to one the account already has, same amount, is the same purchase
+
+
 @app.post("/api/accounts/{account_id}/import")
 def import_csv(account_id: str, req: ImportReq):
-    """Import a CSV of transactions. Sign convention matches Plaid: positive = money out (purchase)."""
+    """Import a CSV of transactions. Sign convention matches Plaid: positive = money out (purchase).
+
+    A row the account already has, same amount within DUP_DAYS days, is skipped. Each existing row matches once.
+    """
     import csv
     import hashlib
     import io
@@ -443,9 +450,24 @@ def import_csv(account_id: str, req: ImportReq):
         tid = "imp-" + hashlib.sha1(f"{base}|{seen[base]}".encode()).hexdigest()[:20]
         cat = "LOAN_PAYMENTS" if amt < 0 and "payment" in desc.lower() else None
         out.append((tid, account_id, None, d, "", amt, desc, desc.title()[:60], 0, cat, None, None, None, "import", "{}"))
+    have = db.q("SELECT transaction_id, date, amount FROM transactions WHERE account_id=?", (account_id,))
+    have_ids = {h["transaction_id"] for h in have}
+    pool = [h for h in have if h["transaction_id"] not in {r[0] for r in out}]
+    todo = [r for r in out if r[0] not in have_ids]
+    skipped = set()
+    for gap in range(DUP_DAYS + 1):  # same-date matches first, then one day off, then two
+        for r in todo:
+            if r[0] in skipped:
+                continue
+            m = next((h for h in pool if transfers.cents(h["amount"]) == transfers.cents(r[5])
+                      and (h["amount"] > 0) == (r[5] > 0) and transfers.days_apart(h["date"], r[3]) == gap), None)
+            if m:
+                pool.remove(m)
+                skipped.add(r[0])
+    keep = [r for r in todo if r[0] not in skipped]
     before = db.one("SELECT COUNT(*) AS n FROM transactions WHERE account_id=?", (account_id,))["n"]
     db.many("""INSERT OR IGNORE INTO transactions (transaction_id, account_id, item_id, date, authorized_date, amount, name, merchant_name,
-               pending, category, category_detail, logo_url, website, payment_channel, raw) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", out)
+               pending, category, category_detail, logo_url, website, payment_channel, raw) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", keep)
     after = db.one("SELECT COUNT(*) AS n FROM transactions WHERE account_id=?", (account_id,))["n"]
     try:
         rules.categorize([r[0] for r in out])
@@ -455,6 +477,11 @@ def import_csv(account_id: str, req: ImportReq):
         places.fill([r[0] for r in out])
     except Exception:
         log.exception("placing after import failed; rows imported but left unplaced")
+    try:
+        transfers.prune()
+        transfers.detect()
+    except Exception:
+        log.exception("finding transfers after import failed; rows imported")
     return {"read": len(out), "added": after - before, "duplicates": len(out) - (after - before)}
 
 
@@ -613,11 +640,14 @@ def transactions(account_id: str | None = None, q: str | None = None, cat_id: st
     tagged = tags.for_transactions([r["transaction_id"] for r in rows])
     ids = [r["transaction_id"] for r in rows]
     split_lines, paid_by = splits.for_transactions(ids), splits.payback_names(ids)
+    moved = transfers.for_transactions(ids)
     for r in rows:
         r["tags"] = tagged.get(r["transaction_id"], [])
         r["splits"] = split_lines.get(r["transaction_id"], [])
         r["split_off"] = splits.off_by(r["amount"], r["splits"])
         r["payback_from"] = paid_by.get(r["transaction_id"])
+        r["transfer"] = moved.get(r["transaction_id"], {}).get("transfer")
+        r["transfer_options"] = moved.get(r["transaction_id"], {}).get("options", [])
         r["logo"] = logos.merchant_logo(r["merchant_name"] or r["name"], r.pop("logo_url"), r.pop("website") or r.pop("place_website"))
         r.pop("place_website", None)
         r["display_amount"] = -(r["amount"] or 0)  # Plaid: positive = money out
@@ -775,7 +805,7 @@ class DismissReq(BaseModel):
 
 
 def _split_call(fn, *a, **kw):
-    """Run a splits function and turn its errors into the right status code."""
+    """Run a splits or transfers function and turn its errors into the right status code."""
     try:
         return fn(*a, **kw)
     except splits.PaybackLinked as e:
@@ -826,6 +856,27 @@ def delete_payback(payback_id: int):
 def owed_dismiss(split_id: int, req: DismissReq):
     _split_call(splits.dismiss, split_id, req.payment_id)
     return {"ok": True}
+
+
+class TransferReq(BaseModel):
+    a: str
+    b: str
+
+
+@app.post("/api/transfers")
+def link_transfer(req: TransferReq):
+    return _split_call(transfers.link, req.a, req.b)
+
+
+@app.delete("/api/transfers/{transaction_id}")
+def unlink_transfer(transaction_id: str):
+    _split_call(transfers.unlink, transaction_id)
+    return {"ok": True}
+
+
+@app.post("/api/transfers/{transaction_id}/dismiss")
+def dismiss_transfer(transaction_id: str):
+    return {"dismissed": _split_call(transfers.dismiss, transaction_id)}
 
 
 # ---------- rules ----------
@@ -1127,6 +1178,11 @@ def _startup():
         splits.prune()
     except Exception:
         log.exception("starting the review queue failed; continuing without it")
+    try:
+        transfers.prune()
+        transfers.detect()
+    except Exception:
+        log.exception("finding transfers at startup failed; continuing without it")
     try:
         refreshed = places.refresh_if_stale()
         if refreshed is not None:

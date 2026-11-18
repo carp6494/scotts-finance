@@ -80,6 +80,8 @@ def save(transaction_id, raw_lines) -> list:
         raise LookupError("Transaction not found")
     if t["pending"]:
         raise ValueError("A pending charge can't be split. Wait until it posts.")
+    if db.one("SELECT 1 FROM transfers WHERE out_id=? OR in_id=?", (transaction_id, transaction_id)):
+        raise ValueError("This is a transfer. Unlink it before splitting.")
     new = _clean_lines(t, raw_lines)
     for old in lines(transaction_id):
         if not old["owed_by"] or _paid(old["id"]) < CENT:
@@ -190,6 +192,7 @@ def _deposits(since) -> list:
     rows = db.q(f"""SELECT t.transaction_id, t.date, -t.amount AS amount, {SHOWN} AS name,
                            COALESCE((SELECT SUM(p.amount) FROM paybacks p WHERE p.payment_id=t.transaction_id),0) AS used
                     FROM transactions t WHERE t.amount<0 AND COALESCE(t.pending,0)=0 AND t.date>=?
+                      AND t.transaction_id NOT IN (SELECT out_id FROM transfers UNION ALL SELECT in_id FROM transfers)
                     ORDER BY t.date DESC, t.transaction_id""", (since,))
     for r in rows:
         r["amount"] = round(r["amount"], 2)

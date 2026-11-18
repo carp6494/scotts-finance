@@ -143,6 +143,12 @@ export default function TxList({ accountId, catId, tagId, spot, merchant, start,
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('mousedown', onDown) }
   }, [review])
 
+  // Link, unlink, or turn down a transfer, then refresh every list and the Owed box.
+  const transferAct = async (fn) => {
+    setBusy(true)
+    try { await fn(); txChanged({ reload: true }); onChanged && onChanged() } catch (e) { toast(e.message) } finally { setBusy(false) }
+  }
+
   const makeRule = async () => {
     if (!suggestion) return
     setBusy(true)
@@ -192,12 +198,19 @@ export default function TxList({ accountId, catId, tagId, spot, merchant, start,
                     {t.pending ? <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--warn)' }}>Pending</span> : null}
                     {!review && !t.reviewed && !t.pending ? <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 600, color: 'var(--info)' }}>New</span> : null}
                     {t.excluded ? <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--muted)' }}>Excluded</span> : null}
-                    {t.is_transfer ? <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--muted)' }}>Transfer</span> : null}
+                    {t.transfer
+                      ? <span style={{ marginLeft: 8, display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 11, fontWeight: 400, padding: '0 2px 0 8px', borderRadius: 999, border: '1px solid var(--line)', color: 'var(--text2)', verticalAlign: 'middle' }}>
+                          Transfer {t.transfer.dir} {t.transfer.account}
+                          <button type="button" disabled={busy} onClick={(e) => { e.stopPropagation(); transferAct(() => api.unlinkTransfer(t.transaction_id)) }}
+                            aria-label="Unlink transfer" title="Unlink"
+                            style={{ border: 0, background: 'transparent', color: 'var(--muted)', fontSize: 13, lineHeight: 1, padding: '0 4px' }}>×</button>
+                        </span>
+                      : t.is_transfer ? <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--muted)' }}>Transfer</span> : null}
                     {t.payback_from ? <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--pos)' }}>Payback from {t.payback_from}</span> : null}
                   </span>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap' }}>
                     <CategoryPicker value={t.cat_id} compact={compact} onChange={(id) => setCategory(t, id)}
-                      splitCount={t.splits?.length || 0} onSplit={t.pending ? undefined : () => setSplitting(t.transaction_id)} />
+                      splitCount={t.splits?.length || 0} onSplit={t.pending || t.transfer ? undefined : () => setSplitting(t.transaction_id)} />
                     <TagPills t={t} compact={compact} onChange={(tags) => setTags(t, tags)} />
                     {showAccount && t.account_name ? <span>{t.account_name}{t.mask ? ' ' + t.mask : ''}</span> : null}
                   </span>
@@ -217,6 +230,21 @@ export default function TxList({ accountId, catId, tagId, spot, merchant, start,
               </div>
               {t.splits?.length > 0 && splitting !== t.transaction_id && <SplitLines t={t} groups={groups} />}
               {splitting === t.transaction_id && <SplitEditor t={t} onClose={() => setSplitting(null)} onChanged={onChanged} />}
+              {!t.transfer && t.transfer_options?.length > 0 && (
+                <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '8px 16px 10px', fontSize: 13, color: 'var(--text2)', background: 'var(--hover)' }}>
+                  {t.transfer_options.map((o) => (
+                    <div key={o.id} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
+                      <span style={{ flex: 1 }}>Possible transfer: {money(Math.abs(o.display_amount))} {o.display_amount > 0 ? 'into' : 'out of'} {o.account} on {fullDate(o.date)}</span>
+                      <button type="button" className="press" disabled={busy} onClick={() => transferAct(() => api.linkTransfer(t.transaction_id, o.id))}
+                        style={{ height: 30, padding: '0 12px', borderRadius: 8, border: 0, background: 'var(--accent)', color: '#fff', fontWeight: 600, fontSize: 12 }}>Link</button>
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button type="button" disabled={busy} onClick={() => transferAct(() => api.dismissTransfer(t.transaction_id))}
+                      style={{ height: 30, padding: '0 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'transparent', color: 'var(--text2)', fontSize: 12 }}>Not a transfer</button>
+                  </div>
+                </div>
+              )}
               {suggestion && suggestion.id === t.transaction_id && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, padding: '8px 16px 10px', fontSize: 13, color: 'var(--text2)', background: 'var(--hover)' }}>
                   <span style={{ flex: 1 }}>

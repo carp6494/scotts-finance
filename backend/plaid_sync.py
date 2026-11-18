@@ -27,6 +27,7 @@ import places
 import review
 import rules
 import splits
+import transfers
 from secure import decrypt, encrypt
 
 log = logging.getLogger("plaid")
@@ -119,6 +120,7 @@ def remove_item(item_id):
         db.run("DELETE FROM holdings WHERE account_id=?", (a,))
     db.run("DELETE FROM transactions WHERE item_id=?", (item_id,))
     splits.prune()
+    transfers.prune()
     db.run("DELETE FROM accounts WHERE item_id=?", (item_id,))
     db.run("DELETE FROM items WHERE item_id=?", (item_id,))
 
@@ -204,6 +206,11 @@ def sync_item(item_id):
             splits.check([_d(t)["transaction_id"] for t in pages_modified])
         except Exception:
             log.exception("checking splits after sync failed; transactions saved")
+        try:
+            transfers.prune()
+            transfers.detect()
+        except Exception:
+            log.exception("finding transfers after sync failed; transactions saved")
         added, modified, removed = len(pages_added), len(pages_modified), len(pages_removed)
         db.run("UPDATE items SET cursor=?, status='ok', error=NULL, last_sync=datetime('now') WHERE item_id=?", (cursor, item_id))
 

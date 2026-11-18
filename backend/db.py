@@ -174,6 +174,17 @@ CREATE TABLE IF NOT EXISTS payback_dismissed (
   payment_id TEXT NOT NULL,
   PRIMARY KEY (split_id, payment_id)
 );
+CREATE TABLE IF NOT EXISTS transfers (
+  out_id TEXT PRIMARY KEY,
+  in_id TEXT NOT NULL UNIQUE,
+  source TEXT NOT NULL DEFAULT 'auto',
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS transfer_dismissed (
+  out_id TEXT NOT NULL,
+  in_id TEXT NOT NULL,
+  PRIMARY KEY (out_id, in_id)
+);
 """
 
 

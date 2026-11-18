@@ -64,6 +64,9 @@ export const api = {
   linkPayback: (splitId, body) => req('POST', `/api/owed/${splitId}/payback`, body),
   unlinkPayback: (id) => req('DELETE', `/api/paybacks/${id}`),
   dismissPayback: (splitId, paymentId) => req('POST', `/api/owed/${splitId}/dismiss`, { payment_id: paymentId }),
+  linkTransfer: (a, b) => req('POST', '/api/transfers', { a, b }),
+  unlinkTransfer: (id) => req('DELETE', `/api/transfers/${encodeURIComponent(id)}`),
+  dismissTransfer: (id) => req('POST', `/api/transfers/${encodeURIComponent(id)}/dismiss`),
 }
 
 const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
