@@ -18,6 +18,7 @@ Scott's Finance App\
     review.py            review queue: what waits, the one-time start
     splits.py            splits and money owed back: lines, paybacks, suggestions
     transfers.py         money between own accounts: pairs, questions, unlink
+    ofx.py               reads OFX and QFX bank files, SGML and XML
     maintenance.py       daily backup + 7-year purge
   frontend\              React 19 + Vite 7 + Tailwind 4 + motion + react-plaid-link
     src\api.js           fetch wrappers for every endpoint, money/date/title helpers, 401 -> 'auth-required' event
@@ -29,7 +30,7 @@ Scott's Finance App\
   brand\                 app icon source (1024 px, used on the Plaid profile)
   data\                  finance.db (+ wal/shm), logos\ cache        (gitignored)
   backups\               finance-YYYY-MM-DD.db, keep 30              (gitignored)
-  imports\               CSV statements for manual accounts           (gitignored)
+  imports\               CSV, OFX, and QFX statements for manual accounts           (gitignored)
 ```
 
 ## Database (`data/finance.db`)
@@ -38,7 +39,7 @@ Scott's Finance App\
 |---|---|
 | `items` | One per Plaid login: encrypted access token, institution, color, sync cursor, status/error, last_sync |
 | `accounts` | Plaid and manual accounts: balances, limit, type/subtype, mask, hidden, manual, linked_account_id, institution, apr_override, limit_override, min_payment_override |
-| `transactions` | Plaid id or CSV hash id, account, dates, amount (positive = out), name, merchant, pending, Plaid category, logo/website, user_category, notes, reviewed, raw JSON |
+| `transactions` | Plaid id, CSV hash id, or OFX FITID hash id, account, dates, amount (positive = out), name, merchant, pending, Plaid category, logo/website, user_category, notes, reviewed, raw JSON |
 | `liabilities` | Per account: kind (credit, mortgage, student) + raw Plaid JSON |
 | `holdings` | Investment positions per account/security |
 | `sync_log` | Added/modified/removed counts and errors per sync |
@@ -78,7 +79,7 @@ The DB runs in WAL mode. Migrations are additive `ALTER TABLE ... ADD COLUMN` st
 | POST / PUT / DELETE | /manual, /manual/{id} | home asset |
 | POST | /manual/account | manual account (e.g. Lowe's / Synchrony) |
 | PATCH | /manual/{id}/balance | manual balance/limit |
-| POST | /accounts/{id}/import | CSV import, dedupe by sha1(account,date,amount,desc,occurrence), then skip rows the account has within 2 days, same amount |
+| POST | /accounts/{id}/import | CSV, OFX, or QFX import. CSV ids are sha1(account,date,amount,desc,occurrence). OFX ids are sha1(account,FITID). Then skip rows the account has within 2 days, same amount |
 | PATCH | /accounts/{id}/terms | {apr, limit_amt, min_payment} overrides |
 | GET | /debts | debts for the payoff planner |
 | GET | /transactions | q, account_id, cat_id, tag_id, unreviewed, paging; adds display_amount, tags, splits, split_off, payback_from, transfer, transfer_options |

@@ -14,11 +14,11 @@ I built it for myself. You can run it too, but you need your own Plaid developer
 - Tags: label any transaction, by hand or with a rule
 - New transactions wait in a box at the top of Transactions until you check them
 - Split a charge across categories, or mark part of it owed back by someone and link their payback
-- Transfers between your own accounts link on their own, so a card payment never counts as spending. A CSV import skips rows the account already has.
+- Transfers between your own accounts link on their own, so a card payment never counts as spending. An import skips rows the account already has.
 - Map page: a 3D map of the United States with a bar for each business you paid, in outline, satellite, hybrid, or terrain style, and a world heatmap
 - Finds where each purchase happened: the bank's address, a local business lookup, the zip or city center, or the company headquarters
 - Debt payoff page
-- Manual accounts, home value with linked mortgage, and CSV import for anything Plaid cannot reach
+- Manual accounts, home value with linked mortgage, and CSV, OFX, or QFX import for anything Plaid cannot reach
 - Sign-in with an authenticator app code
 - Daily backups, keeps the last 30
 - Light, dark, and system themes
@@ -81,9 +81,9 @@ For a shop with no logo, the app asks the shop's own website for its icon, once.
 
 Check the OAuth page in the Plaid dashboard under Settings, Compliance, US OAuth institutions. If Plaid says a bank needs a redirect URI, add one under Developers, API, and put the same value in `PLAID_REDIRECT_URI` in `.env`.
 
-## Import a CSV
+## Import a bank file
 
-Open an account, click Import CSV from bank, and pick the file your bank exported. The importer looks for date, description, and amount columns, or separate debit and credit columns. Tick the box if the file shows purchases as negative numbers.
+Open an account, click Import file from bank, and pick the file your bank exported. CSV, OFX, and QFX all work. For a CSV, the importer looks for date, description, and amount columns, or separate debit and credit columns. Tick the box if the CSV shows purchases as negative numbers. OFX and QFX files need no box. Importing the same file twice adds nothing.
 
 ## Working on the code
 

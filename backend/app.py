@@ -33,6 +33,7 @@ import review  # noqa: E402
 import tags  # noqa: E402
 import splits  # noqa: E402
 import transfers  # noqa: E402
+import ofx  # noqa: E402
 import tiles  # noqa: E402
 from fastapi import Request, Response  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
@@ -410,17 +411,44 @@ DUP_DAYS = 2  # an imported row this close to one the account already has, same 
 
 @app.post("/api/accounts/{account_id}/import")
 def import_csv(account_id: str, req: ImportReq):
-    """Import a CSV of transactions. Sign convention matches Plaid: positive = money out (purchase).
+    """Import a CSV, OFX or QFX file. Sign convention matches Plaid: positive = money out (purchase).
 
     A row the account already has, same amount within DUP_DAYS days, is skipped. Each existing row matches once.
     """
-    import csv
-    import hashlib
-    import io
     a = db.one("SELECT * FROM accounts WHERE account_id=?", (account_id,))
     if not a:
         raise HTTPException(404, "Account not found")
-    rows = list(csv.DictReader(io.StringIO(req.csv.lstrip("\ufeff"))))
+    text = req.csv.lstrip("\ufeff")
+    out = _ofx_rows(account_id, text) if ofx.looks_like(text) else _csv_rows(account_id, text, req.flip)
+    return _store_imported(account_id, out)
+
+
+def _import_row(tid, account_id, d, amt, desc):
+    cat = "LOAN_PAYMENTS" if amt < 0 and "payment" in desc.lower() else None
+    return (tid, account_id, None, d, "", amt, desc, desc.title()[:60], 0, cat, None, None, None, "import", "{}")
+
+
+def _ofx_rows(account_id, text):
+    """OFX always writes money out as negative, so the flip box does not apply. The bank's FITID makes the row ID."""
+    import hashlib
+    rows = ofx.parse(text)
+    if not rows:
+        raise HTTPException(400, "No transactions found in that file")
+    seen, out = {}, []
+    for r in rows:
+        amt = -r["amount"]
+        key = r["fitid"] or f"{r['date']}|{amt:.2f}|{r['name']}"
+        seen[key] = seen.get(key, 0) + 1
+        tid = "ofx-" + hashlib.sha1(f"{account_id}|{key}|{seen[key]}".encode()).hexdigest()[:20]
+        out.append(_import_row(tid, account_id, r["date"], amt, r["name"]))
+    return out
+
+
+def _csv_rows(account_id, text, flip):
+    import csv
+    import hashlib
+    import io
+    rows = list(csv.DictReader(io.StringIO(text)))
     if not rows:
         raise HTTPException(400, "No rows found in that file")
     keys = {k.lower().strip(): k for k in rows[0].keys() if k}
@@ -442,14 +470,18 @@ def import_csv(account_id: str, req: ImportReq):
             amt = (_num(r.get(debit)) or 0) - (_num(r.get(credit)) or 0)
         if amt is None:
             continue
-        if req.flip:
+        if flip:
             amt = -amt
         desc = (r.get(nk) or "").strip()
         base = f"{account_id}|{d}|{amt:.2f}|{desc}"
         seen[base] = seen.get(base, 0) + 1
         tid = "imp-" + hashlib.sha1(f"{base}|{seen[base]}".encode()).hexdigest()[:20]
-        cat = "LOAN_PAYMENTS" if amt < 0 and "payment" in desc.lower() else None
-        out.append((tid, account_id, None, d, "", amt, desc, desc.title()[:60], 0, cat, None, None, None, "import", "{}"))
+        out.append(_import_row(tid, account_id, d, amt, desc))
+    return out
+
+
+def _store_imported(account_id, out):
+    """Insert rows that are new to the account, then categorize, place, and look for transfers."""
     have = db.q("SELECT transaction_id, date, amount FROM transactions WHERE account_id=?", (account_id,))
     have_ids = {h["transaction_id"] for h in have}
     pool = [h for h in have if h["transaction_id"] not in {r[0] for r in out}]

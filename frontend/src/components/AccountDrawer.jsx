@@ -226,10 +226,10 @@ export default function AccountDrawer({ accountId, onClose, onChanged, onTotals 
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
                       <label className="press" style={{ height: 38, padding: '0 14px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13, display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
-                        Import CSV from bank<input type="file" accept=".csv,text/csv" onChange={onFile} style={{ display: 'none' }} />
+                        Import file from bank<input type="file" accept=".csv,.ofx,.qfx,text/csv" onChange={onFile} style={{ display: 'none' }} />
                       </label>
                       <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)' }}>
-                        <input type="checkbox" checked={flip} onChange={(e) => setFlip(e.target.checked)} /> File shows purchases as negative
+                        <input type="checkbox" checked={flip} onChange={(e) => setFlip(e.target.checked)} /> CSV shows purchases as negative
                       </label>
                     </div>
                     {importMsg && <div style={{ fontSize: 13, color: 'var(--info)' }}>{importMsg}</div>}
