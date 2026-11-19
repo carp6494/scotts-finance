@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, toast } from '../api'
+import { api, toast, download } from '../api'
 
 const SESSION_LABELS = { 12: '12 hours', 24: '1 day', 168: '7 days', 720: '30 days' }
 const THEMES = ['light', 'dark', 'system']
@@ -19,6 +19,69 @@ function Row({ title, help, children }) {
       </div>
       {children}
     </div>
+  )
+}
+
+const FIELD = { height: 36, padding: '0 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--text)', fontSize: 13 }
+const BUTTON = { height: 36, padding: '0 14px', borderRadius: 8, border: 0, background: 'var(--accent)', color: '#fff', fontWeight: 600, fontSize: 13 }
+
+function qs(p) {
+  const s = new URLSearchParams(Object.entries(p).filter(([, v]) => v)).toString()
+  return s ? '?' + s : ''
+}
+
+// Files to take out of the app. The dates at the top apply to the first two rows.
+function ExportSection() {
+  const thisYear = new Date().getFullYear()
+  const [start, setStart] = useState(`${thisYear}-01-01`)
+  const [end, setEnd] = useState('')
+  const [accounts, setAccounts] = useState([])
+  const [account, setAccount] = useState('')
+  const [fmt, setFmt] = useState('qbo')
+  const [year, setYear] = useState(thisYear - 1)
+  useEffect(() => {
+    api.accounts().then((list) => {
+      const real = list.filter((a) => ['depository', 'credit', 'loan'].includes(a.type))
+      setAccounts(real)
+      setAccount((cur) => cur || real[0]?.account_id || '')
+    }).catch(() => {})
+  }, [])
+  const get = async (url) => {
+    try { toast(`Downloaded ${await download(url)}.`) } catch (e) { toast(e.message) }
+  }
+  return (
+    <Section title="Export">
+      <Row title="Dates" help="For the transactions file and the QuickBooks file. Leave To blank to go through today. Pending transactions are left out.">
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, color: 'var(--text2)' }}>
+          <label>From <input type="date" value={start} onChange={(e) => setStart(e.target.value)} style={FIELD} /></label>
+          <label>To <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} style={FIELD} /></label>
+        </div>
+      </Row>
+      <Row title="All transactions" help="Every account, with category, tags, notes, and who owes money back. A split shows one row per line. Money out is negative. Opens in Excel.">
+        <button type="button" className="press" style={BUTTON} onClick={() => get('/api/export/transactions.csv' + qs({ start, end }))}>Download CSV</button>
+      </Row>
+      <Row title="QuickBooks file" help="One account at a time. QBO is the Web Connect file QuickBooks Desktop and Online both import. CSV is the three column upload for QuickBooks Online.">
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <select aria-label="Account" value={account} onChange={(e) => setAccount(e.target.value)} style={{ ...FIELD, maxWidth: 200 }}>
+            {accounts.map((a) => <option key={a.account_id} value={a.account_id}>{a.name}</option>)}
+          </select>
+          <select aria-label="File type" value={fmt} onChange={(e) => setFmt(e.target.value)} style={FIELD}>
+            <option value="qbo">QBO</option>
+            <option value="csv">CSV</option>
+          </select>
+          <button type="button" className="press" style={BUTTON} disabled={!account}
+            onClick={() => get(`/api/export/quickbooks/${encodeURIComponent(account)}` + qs({ fmt, start, end }))}>Download</button>
+        </div>
+      </Row>
+      <Row title="Tax summary" help="Totals for the year by category and by tag. Tag tax items all year, like Medical or Charity, and each tag gets its own line. Transfers and money owed back are left out.">
+        <div style={{ display: 'flex', gap: 8 }}>
+          <select aria-label="Tax year" value={year} onChange={(e) => setYear(Number(e.target.value))} style={FIELD}>
+            {[0, 1, 2, 3, 4].map((n) => <option key={n} value={thisYear - n}>{thisYear - n}</option>)}
+          </select>
+          <button type="button" className="press" style={BUTTON} onClick={() => get(`/api/export/tax-summary.csv?year=${year}`)}>Download CSV</button>
+        </div>
+      </Row>
+    </Section>
   )
 }
 
@@ -75,6 +138,8 @@ export default function Settings({ theme, setTheme }) {
           </div>
         </Row>
       </Section>
+
+      <ExportSection />
 
       <Section title="Privacy">
         <Row title="Get shop icons from their websites" help="For a shop with no logo, the app asks the shop's own website for its icon, once. The request says nothing about you or the purchase. Turn this off and the app contacts no shop websites.">

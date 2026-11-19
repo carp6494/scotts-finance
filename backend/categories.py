@@ -61,6 +61,7 @@ NAME_OVERRIDES = {
     "RENT_AND_UTILITIES_GAS_AND_ELECTRICITY": "Gas and electric",
     "GENERAL_MERCHANDISE_TOBACCO_AND_VAPE": "Tobacco and vape",
     "OTHER_OTHER": "Other",
+    "BANK_FEES_ATM_FEES": "ATM fee",
 }
 
 GROUP_ICONS = {
@@ -78,7 +79,15 @@ UNCAT_ICON = "❔"
 # An icon of the form ":name:" is a drawing the frontend supplies, for things with no emoji.
 EXTRAS = [
     ("EXTRA_CANNABIS", "Shopping", "Cannabis", "expense", 50, ":cannabis:"),
+    ("EXTRA_ATM_WITHDRAWAL", "Cash and ATM", "ATM withdrawal", "expense", 0, "🏧"),
+    ("EXTRA_ATM_DEPOSIT", "Cash and ATM", "ATM deposit", "income", 2, "💵"),
+    ("EXTRA_MOBILE_CHECK_DEPOSIT", "Cash and ATM", "Mobile check deposit", "income", 3, "📱"),
 ]
+# Cash and ATM is not a Plaid group. Plaid's ATM fee code is filed there so it maps with no rule.
+CASH_GROUP = "Cash and ATM"
+CODE_GROUPS = {"BANK_FEES_ATM_FEES": (CASH_GROUP, "expense", 1)}
+# A Plaid category the app once seeded under an old name and group. It moves unless the owner renamed it.
+MOVED = [("BANK_FEES_ATM_FEES", "Atm fees", CASH_GROUP, "ATM fee", 1)]
 # Old default icons that a newer default replaces. A different icon was chosen by the owner and stays.
 REPLACED_ICONS = [("EXTRA_CANNABIS", "🌿", ":cannabis:")]
 
@@ -169,7 +178,8 @@ def seed():
         group, typ = GROUPS[p]
         for i, s in enumerate(suffixes):
             code = f"{p}_{s}"
-            rows.append((code, group, readable(code), typ, i, default_icon(code)))
+            g, ty, sort = CODE_GROUPS.get(code, (group, typ, i))
+            rows.append((code, g, readable(code), ty, sort, default_icon(code)))
     rows.append((UNCAT, "Uncategorized", "Uncategorized", "expense", 0, UNCAT_ICON))
     rows += EXTRAS
     db.many("INSERT OR IGNORE INTO categories (id, group_name, name, type, sort, icon) VALUES (?,?,?,?,?,?)", rows)
@@ -178,6 +188,8 @@ def seed():
     if rows:
         db.many("UPDATE categories SET icon=? WHERE id=?", [(default_icon(r["id"], r["group_name"]), r["id"]) for r in rows])
     db.many("UPDATE categories SET icon=? WHERE id=? AND icon=?", [(new, cat_id, old) for cat_id, old, new in REPLACED_ICONS])
+    db.many("UPDATE categories SET group_name=?, name=?, sort=? WHERE id=? AND name=?",
+            [(group, name, sort, cat_id, old) for cat_id, old, group, name, sort in MOVED])
 
 
 def ensure(code):
@@ -198,7 +210,9 @@ def get(cat_id):
 
 def grouped():
     """[{group_name, categories: [{id, name, type, hidden, custom, icon}]}] in display order."""
-    order = {g: i for i, g in enumerate(v[0] for v in GROUPS.values())}
+    names = [v[0] for v in GROUPS.values()]
+    names.insert(names.index("Bank fees") + 1, CASH_GROUP)
+    order = {g: i for i, g in enumerate(names)}
     rows = db.q("SELECT id, group_name, name, type, hidden, custom, icon FROM categories ORDER BY sort, name")
     groups = {}
     for r in rows:

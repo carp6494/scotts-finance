@@ -47,8 +47,10 @@ export const api = {
   rules: () => req('GET', '/api/rules'),
   addRule: (body) => req('POST', '/api/rules', body),
   updateRule: (id, body) => req('PUT', `/api/rules/${id}`, body),
+  orderRules: (ids) => req('POST', '/api/rules/order', { ids }),
   deleteRule: (id) => req('DELETE', `/api/rules/${id}`),
   previewRule: (body) => req('POST', '/api/rules/preview', body),
+  ruleDraft: (id) => req('GET', `/api/transactions/${encodeURIComponent(id)}/rule-draft`),
   applyRules: () => req('POST', '/api/rules/apply'),
   placesCoverage: () => req('GET', '/api/places/coverage'),
   tags: () => req('GET', '/api/tags'),
@@ -84,6 +86,24 @@ export const fullDate = (s) => {
   return isNaN(d) ? s : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 export const titleCase = (s) => (s || '').toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()).replace(/\bApr\b/g, 'APR')
+// Fetch a file from the server and hand it to the browser to save. Errors come back as messages, not as a saved file.
+export async function download(url) {
+  const r = await fetch(url)
+  if (r.status === 401) window.dispatchEvent(new Event('auth-required'))
+  if (!r.ok) {
+    const data = await r.json().catch(() => ({}))
+    throw new Error(data.detail || `Download failed (${r.status})`)
+  }
+  const name = (r.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/)?.[1] || 'export'
+  const href = URL.createObjectURL(await r.blob())
+  const a = Object.assign(document.createElement('a'), { href, download: name })
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(href), 1000)
+  return name
+}
+
 export const toast = (msg) => window.dispatchEvent(new CustomEvent('toast', { detail: msg }))
 // One transaction row changed. detail is { id, fields }, { all: true, fields }, or { reload: true }.
 // Every TxList on the page listens, so the new box and the full list stay in step.

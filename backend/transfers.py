@@ -38,9 +38,11 @@ def days_apart(a, b) -> int:
 
 
 def _eligible(ids=None) -> list:
-    """Rows that may be one side of a transfer: posted, not split, not excluded, not paired, not a payback deposit."""
+    """Rows that may be one side of a transfer: posted, not split, not excluded, not paired, not a payback deposit,
+    and not filed under Cash and ATM. Cash in or out at a machine is never a move between your own accounts."""
     sql = f"""SELECT t.transaction_id, t.account_id, t.date, t.amount FROM transactions t
               WHERE COALESCE(t.pending,0)=0 AND COALESCE(t.excluded,0)=0 AND t.amount != 0
+                AND COALESCE((SELECT c.group_name FROM categories c WHERE c.id=t.cat_id),'') != '{categories.CASH_GROUP}'
                 AND t.transaction_id NOT IN (SELECT transaction_id FROM splits)
                 AND t.transaction_id NOT IN ({PAIRED})
                 AND t.transaction_id NOT IN (SELECT payment_id FROM paybacks WHERE payment_id IS NOT NULL)"""

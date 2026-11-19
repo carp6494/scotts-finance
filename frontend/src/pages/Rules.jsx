@@ -1,34 +1,16 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { api, money, toast } from '../api'
+import { api, toast } from '../api'
 import { useCategories, categoryLabel, loadCategories, withIcon } from '../categories'
 import CatIcon from '../components/CatIcon'
 import { useTags, loadTags, pillStyle } from '../tags'
+import { describeRule, loadRules } from '../ruleText'
 
 const inp = { height: 36, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg)', color: 'var(--text)', padding: '0 10px', fontSize: 13 }
 const btn = { height: 36, padding: '0 14px', borderRadius: 8, border: 0, background: 'var(--accent)', color: '#fff', fontWeight: 600, fontSize: 13 }
 const ghost = { ...btn, background: 'transparent', border: '1px solid var(--line)', color: 'var(--text2)', fontWeight: 500 }
-const EMPTY = { name: '', priority: 100, enabled: true, conditions: {}, actions: {} }
+const EMPTY = { name: '', enabled: true, conditions: {}, actions: {} }
 
-function describe(rule, groups, accounts) {
-  const c = rule.conditions, a = rule.actions, parts = []
-  if (c.merchant) parts.push(`merchant has "${c.merchant}"`)
-  if (c.text) parts.push(`text has "${c.text}"`)
-  if (c.amount_min != null && c.amount_max != null) parts.push(`amount ${money(c.amount_min)} to ${money(c.amount_max)}`)
-  else if (c.amount_min != null) parts.push(`amount at least ${money(c.amount_min)}`)
-  else if (c.amount_max != null) parts.push(`amount at most ${money(c.amount_max)}`)
-  if (c.account_id) {
-    const acct = (accounts || []).find((x) => x.account_id === c.account_id)
-    parts.push(`account ${acct ? `${acct.official_name || acct.name}${acct.mask ? ` ${acct.mask}` : ''}` : 'one account'}`)
-  }
-  if (c.day_min != null || c.day_max != null) parts.push(`day ${c.day_min ?? 1} to ${c.day_max ?? 31}`)
-  const acts = []
-  if (a.cat_id) acts.push(`file as ${categoryLabel(groups, a.cat_id)}`)
-  if (a.display_name) acts.push(`show as "${a.display_name}"`)
-  if (a.exclude) acts.push('exclude from totals')
-  if (a.transfer) acts.push('mark as transfer')
-  if (a.tags && a.tags.length) acts.push(`tag ${a.tags.map((x) => `"${x}"`).join(', ')}`)
-  return `When ${parts.join(' and ') || 'anything'}: ${acts.join(', ') || 'nothing'}`
-}
+const describe = describeRule
 
 function RuleEditor({ initial, accounts, groups, onSaved, onCancel }) {
   const [r, setR] = useState(initial)
@@ -53,7 +35,7 @@ function RuleEditor({ initial, accounts, groups, onSaved, onCancel }) {
   const save = async (applyPast) => {
     setBusy(true); setErr('')
     try {
-      const body = { ...r, priority: Number(r.priority) || 0, apply_past: applyPast }
+      const body = { ...r, apply_past: applyPast }
       const out = r.id ? await api.updateRule(r.id, body) : await api.addRule(body)
       if (applyPast) toast(`${out.changed} transaction${out.changed === 1 ? '' : 's'} updated.`)
       loadTags(true).catch(() => {})
@@ -66,9 +48,6 @@ function RuleEditor({ initial, accounts, groups, onSaved, onCancel }) {
     <div className="card" style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
         <input value={r.name} onChange={(e) => setR({ ...r, name: e.target.value })} placeholder="Rule name" style={{ ...inp, flex: '2 1 220px' }} />
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--muted)' }}>Priority
-          <input type="number" value={r.priority} onChange={(e) => setR({ ...r, priority: e.target.value })} style={{ ...inp, width: 80 }} />
-        </label>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--muted)' }}>
           <input type="checkbox" checked={r.enabled} onChange={(e) => setR({ ...r, enabled: e.target.checked })} /> Enabled
         </label>
@@ -82,6 +61,22 @@ function RuleEditor({ initial, accounts, groups, onSaved, onCancel }) {
         <select value={c.account_id || ''} onChange={(e) => setC('account_id', e.target.value || null)} style={inp}>
           <option value="">Any account</option>
           {accounts.map((x) => <option key={x.account_id} value={x.account_id}>{x.official_name || x.name}{x.mask ? ` ${x.mask}` : ''}</option>)}
+        </select>
+        <select aria-label="Money in or out" value={c.direction || ''} onChange={(e) => setC('direction', e.target.value || null)} style={inp}>
+          <option value="">Money in or out</option>
+          <option value="out">Money out only</option>
+          <option value="in">Money in only</option>
+        </select>
+        <select aria-label="Bank category" value={c.bank_category || ''} onChange={(e) => setC('bank_category', e.target.value || null)} style={inp}>
+          <option value="">Any bank category</option>
+          {groups.map((g) => {
+            const plaid = g.categories.filter((x) => !x.custom && !x.id.startsWith('EXTRA_') && x.id !== 'UNCATEGORIZED')
+            return plaid.length ? (
+              <optgroup key={g.group_name} label={g.group_name}>
+                {plaid.map((x) => <option key={x.id} value={x.id}>Bank says {x.name}</option>)}
+              </optgroup>
+            ) : null
+          })}
         </select>
         <div style={{ display: 'flex', gap: 6 }}>
           <input type="number" min="1" max="31" value={c.day_min ?? ''} onChange={(e) => setC('day_min', e.target.value === '' ? null : e.target.value)} placeholder="Day from" style={{ ...inp, width: '50%' }} />
@@ -126,12 +121,24 @@ function RuleEditor({ initial, accounts, groups, onSaved, onCancel }) {
   )
 }
 
-function RulesTab({ accounts, groups }) {
+function RulesTab({ accounts, groups, focus }) {
   const [rules, setRules] = useState([])
   const [editing, setEditing] = useState(null)
   const [confirmId, setConfirmId] = useState(null)
-  const load = () => api.rules().then(setRules).catch((e) => toast(e.message))
+  const [glow, setGlow] = useState(null)
+  const rows = useRef({})
+  const load = () => api.rules().then((r) => { setRules(r); loadRules(true).catch(() => {}) }).catch((e) => toast(e.message))
   useEffect(() => { load() }, [])
+  // A Rule badge on a transaction sent us here. Scroll to that rule and let it glow for a few seconds.
+  useEffect(() => {
+    if (!focus || !rules.length) return
+    const el = rows.current[focus.id]
+    if (!el) { toast('That rule no longer exists.'); return }
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    setGlow(focus)
+    const t = setTimeout(() => setGlow(null), 4200)
+    return () => clearTimeout(t)
+  }, [focus, rules.length > 0]) // eslint-disable-line
 
   const toggle = async (r) => {
     try { await api.updateRule(r.id, { ...r, enabled: !r.enabled }); load() } catch (e) { toast(e.message) }
@@ -139,6 +146,41 @@ function RulesTab({ accounts, groups }) {
   const remove = async (r) => {
     try { await api.deleteRule(r.id); load() } catch (e) { toast(e.message) }
   }
+  // Drag a rule by its grabber, or focus the grabber and press the up and down arrow keys.
+  const [drag, setDrag] = useState(null) // { id, from, over: index the rule would land at }
+  const grabbers = useRef({})
+  const move = async (from, to, refocus) => {
+    if (to < 0 || to > rules.length - 1 || from === to) return
+    const next = [...rules]
+    const [r] = next.splice(from, 1)
+    next.splice(to, 0, r)
+    setRules(next)
+    if (refocus) requestAnimationFrame(() => grabbers.current[r.id]?.focus())
+    try {
+      const out = await api.orderRules(next.map((x) => x.id))
+      toast(`${r.name} now runs ${to === 0 ? 'first' : `number ${to + 1}`}.${out.changed ? ` ${out.changed} transaction${out.changed === 1 ? '' : 's'} updated.` : ''}`)
+      load()
+    } catch (e) { toast(e.message); load() }
+  }
+  // Where the pointer would drop: the gap before the first row whose middle is below it.
+  const gapAt = (y) => {
+    const i = rules.findIndex((x) => { const el = rows.current[x.id]; if (!el) return false; const b = el.getBoundingClientRect(); return y < b.top + b.height / 2 })
+    return i < 0 ? rules.length : i
+  }
+  const grab = (e, i, r) => {
+    if (e.button !== 0 || editing) return
+    e.preventDefault()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    setDrag({ id: r.id, from: i, over: i })
+  }
+  const drift = (e) => { if (drag) { const over = gapAt(e.clientY); if (over !== drag.over) setDrag({ ...drag, over }) } }
+  const release = () => {
+    if (!drag) return
+    const { from, over } = drag
+    setDrag(null)
+    move(from, over > from ? over - 1 : over)
+  }
+
   const applyAll = async () => {
     try { const out = await api.applyRules(); toast(`${out.changed} transaction${out.changed === 1 ? '' : 's'} updated.`); load() } catch (e) { toast(e.message) }
   }
@@ -146,7 +188,10 @@ function RulesTab({ accounts, groups }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ fontSize: 13, color: 'var(--muted)' }}>Rules run in priority order, lowest first, on every sync. They never change a category you set by hand.</div>
+        <div style={{ fontSize: 13, color: 'var(--muted)', flex: '1 1 320px', lineHeight: 1.5 }}>
+          Rules run from top to bottom on every sync. When two rules could set the category, the higher one wins. They never change a category you set by hand.
+          <span style={{ display: 'block', marginTop: 2 }}>To change the order, drag a rule by its <span aria-hidden="true" style={{ color: 'var(--text2)' }}>⠿</span> grabber on the left. Or click the grabber and press the up and down arrow keys.</span>
+        </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <button type="button" onClick={applyAll} style={ghost}>Re-run all rules</button>
           <button type="button" className="press" onClick={() => setEditing({ ...EMPTY })} style={btn}>New rule</button>
@@ -155,12 +200,26 @@ function RulesTab({ accounts, groups }) {
       {editing && !editing.id && <RuleEditor initial={editing} accounts={accounts} groups={groups} onSaved={() => { setEditing(null); load() }} onCancel={() => setEditing(null)} />}
       <div style={{ border: '1px solid var(--line)', borderRadius: 12 }}>
         {rules.map((r, i) => (
-          <div key={r.id} style={{ borderTop: i ? '1px solid var(--line2)' : 0 }}>
+          <div key={glow?.id === r.id ? `${r.id}-${glow.at}` : r.id} ref={(el) => { rows.current[r.id] = el }}
+            className={glow?.id === r.id ? 'rule-glow' : undefined}
+            style={{ borderTop: i ? '1px solid var(--line2)' : 0, position: 'relative', opacity: drag?.id === r.id ? 0.45 : 1,
+              background: drag?.id === r.id ? 'var(--hover)' : undefined,
+              boxShadow: drag && drag.over !== drag.from && drag.over !== drag.from + 1
+                ? (drag.over === i ? 'inset 0 3px 0 var(--accent)' : drag.over === i + 1 && i === rules.length - 1 ? 'inset 0 -3px 0 var(--accent)' : undefined) : undefined }}>
             {editing && editing.id === r.id ? (
               <div style={{ padding: 10 }}><RuleEditor initial={editing} accounts={accounts} groups={groups} onSaved={() => { setEditing(null); load() }} onCancel={() => setEditing(null)} /></div>
             ) : (
               <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, padding: '12px 16px', opacity: r.enabled ? 1 : 0.55 }}>
-                <span className="num" style={{ width: 40, fontSize: 12, color: 'var(--muted)' }}>{r.priority}</span>
+                <button type="button" ref={(el) => { grabbers.current[r.id] = el }}
+                  onPointerDown={(e) => grab(e, i, r)} onPointerMove={drift} onPointerUp={release} onPointerCancel={() => setDrag(null)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'ArrowUp') { e.preventDefault(); move(i, i - 1, true) }
+                    if (e.key === 'ArrowDown') { e.preventDefault(); move(i, i + 1, true) }
+                  }}
+                  title="Drag to move. Or press the up and down arrow keys." aria-label={`Move ${r.name}. Runs number ${i + 1} of ${rules.length}. Use the up and down arrow keys.`}
+                  style={{ cursor: drag ? 'grabbing' : 'grab', border: 0, background: 'transparent', color: 'var(--muted)', fontSize: 18, lineHeight: 1, padding: '4px 2px', borderRadius: 6, touchAction: 'none' }}>
+                  ⠿
+                </button>
                 <span style={{ flex: '1 1 260px', minWidth: 0 }}>
                   <span style={{ display: 'block', fontSize: 14, fontWeight: 600 }}>{r.name}</span>
                   <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)' }}>{describe(r, groups, accounts)}</span>
@@ -333,8 +392,9 @@ function TagsTab() {
   )
 }
 
-export default function Rules({ accounts }) {
+export default function Rules({ accounts, focus }) {
   const [tab, setTab] = useState('rules')
+  useEffect(() => { if (focus) setTab('rules') }, [focus])
   const groups = useCategories()
   const tabBtn = (k, l) => (
     <button key={k} type="button" onClick={() => setTab(k)} aria-current={tab === k ? 'page' : undefined}
@@ -343,7 +403,7 @@ export default function Rules({ accounts }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', gap: 6 }}>{tabBtn('rules', 'Rules')}{tabBtn('categories', 'Categories')}{tabBtn('tags', 'Tags')}</div>
-      {tab === 'rules' && <RulesTab accounts={accounts} groups={groups} />}
+      {tab === 'rules' && <RulesTab accounts={accounts} groups={groups} focus={focus} />}
       {tab === 'categories' && <CategoriesTab groups={groups} />}
       {tab === 'tags' && <TagsTab />}
     </div>

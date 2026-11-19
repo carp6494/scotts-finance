@@ -54,6 +54,12 @@ function Main({ onLogout }) {
   const [syncing, setSyncing] = useState(false)
   const [toast, setToast] = useState('')
   const [refreshKey, setRefreshKey] = useState(0)
+  const [ruleFocus, setRuleFocus] = useState(null)
+  useEffect(() => {
+    const go = (e) => { setRuleFocus({ id: e.detail, at: Date.now() }); setPage('rules') }
+    window.addEventListener('open-rule', go)
+    return () => window.removeEventListener('open-rule', go)
+  }, [])
 
   const refresh = useCallback(async () => {
     const [st, sm, ac] = await Promise.all([api.status(), api.summary(), api.accounts()])
@@ -142,7 +148,7 @@ function Main({ onLogout }) {
             {page === 'dashboard' && <Dashboard summary={summary} accounts={accounts} onOpen={setOpenId} onChanged={refresh} />}
             {page === 'transactions' && <Transactions summary={summary} accounts={accounts} refreshKey={refreshKey} onChanged={refreshTotals} />}
             {page === 'map' && <MapPage accounts={accounts} refreshKey={refreshKey} onChanged={refreshTotals} />}
-            {page === 'rules' && <Rules accounts={accounts} />}
+            {page === 'rules' && <Rules accounts={accounts} focus={ruleFocus} />}
             {page === 'debt' && <Debt />}
             {page === 'settings' && <Settings theme={theme} setTheme={setTheme} />}
           </motion.div>

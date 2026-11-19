@@ -10,6 +10,7 @@ A row linked as a transfer is skipped: the link set its category.
 """
 import json
 import logging
+import re
 
 import categories
 import db
@@ -19,6 +20,23 @@ log = logging.getLogger("rules")
 
 def merchant_key(t) -> str:
     return (t.get("merchant_name") or t.get("name") or "").strip().lower()
+
+
+def name_key(t) -> str:
+    """The part of a name a rule should match on.
+
+    Plaid's merchant name when it gave one. Otherwise the bank's text up to the first word with a
+    number in it, at most three words, so "TRANSFUND 1820 S MAIN" gives "TRANSFUND".
+    """
+    if (t.get("merchant_name") or "").strip():
+        return t["merchant_name"].strip()
+    name = " ".join(str(t.get("name") or "").split())
+    words = []
+    for w in name.split(" "):
+        if re.search(r"\d", w) or len(words) == 3:
+            break
+        words.append(w)
+    return " ".join(words) or name
 
 
 def _contains(hay, needle) -> bool:
@@ -40,7 +58,13 @@ def _match(c, t) -> bool:
             return False
     if c.get("text") and not _contains(t.get("name"), c["text"]):
         return False
+    if c.get("bank_category") and c["bank_category"] not in (t.get("category_detail"), t.get("category")):
+        return False
     amt = t.get("amount")
+    if c.get("direction") == "out" and not (amt is not None and amt > 0):
+        return False
+    if c.get("direction") == "in" and not (amt is not None and amt < 0):
+        return False
     if c.get("amount_min") is not None and (amt is None or amt < float(c["amount_min"])):
         return False
     if c.get("amount_max") is not None and (amt is None or amt > float(c["amount_max"])):
@@ -203,6 +227,46 @@ def apply_tags(loaded, transaction_ids, matched_rules) -> set:
     return {n[0] for n in new}
 
 
+def made_by(rows) -> dict:
+    """{transaction_id: [rule ids]} for the rules that changed each row, in priority order.
+
+    A category or tag a rule set is recorded as 'rule:<id>' and is exact. A shown name,
+    an exclude, or a transfer mark is not recorded, so a rule counts for those when it
+    matches the row today and the row still carries what the rule sets.
+    """
+    ids = [r["transaction_id"] for r in rows]
+    if not ids:
+        return {}
+    found = {i: set() for i in ids}
+
+    def rid(src):
+        if src and src.startswith("rule:") and src[5:].isdigit():
+            return int(src[5:])
+
+    for r in rows:
+        n = rid(r.get("cat_source"))
+        if n:
+            found[r["transaction_id"]].add(n)
+    for i in range(0, len(ids), 500):
+        chunk = ids[i:i + 500]
+        for x in db.q(f"SELECT transaction_id, source FROM transaction_tags WHERE transaction_id IN ({','.join('?' * len(chunk))})", chunk):
+            n = rid(x["source"])
+            if n:
+                found[x["transaction_id"]].add(n)
+    known = {r["id"] for r in db.q("SELECT id FROM categories")}
+    loaded = [(r, c, a) for r, c, a in _load_rules(known)
+              if a.get("display_name") or a.get("exclude") or a.get("transfer")]
+    for t in rows:
+        for r, cond, act in loaded:
+            if r["id"] in found[t["transaction_id"]] or not match(cond, t):
+                continue
+            if (act.get("display_name") and t.get("display_name") == act["display_name"]) \
+                    or (act.get("exclude") and t.get("excluded")) or (act.get("transfer") and t.get("is_transfer")):
+                found[t["transaction_id"]].add(r["id"])
+    order = {r["id"]: i for i, r in enumerate(db.q("SELECT id FROM rules ORDER BY priority, id"))}
+    return {k: sorted((n for n in v if n in order), key=order.get) for k, v in found.items() if v}
+
+
 def missing_ids():
     return [r["transaction_id"] for r in db.q("SELECT transaction_id FROM transactions WHERE cat_id IS NULL")]
 
@@ -220,8 +284,21 @@ def similar_count(transaction_id, cat_id) -> int:
     return sum(1 for r in rows if merchant_key(r) == key and (r["cat_id"] or "") != cat_id)
 
 
-def preview(conditions, limit=10):
-    """Count non-user transactions matching the conditions, plus the newest few as a sample."""
+def _would_change(t, actions) -> bool:
+    a = actions or {}
+    return bool((a.get("cat_id") and t.get("cat_id") != a["cat_id"])
+                or (a.get("display_name") and not t.get("display_name"))
+                or (a.get("exclude") and not t.get("excluded"))
+                or (a.get("transfer") and not t.get("is_transfer"))
+                or a.get("tags") or a.get("tag_ids"))
+
+
+def preview(conditions, limit=10, actions=None):
+    """Count non-user transactions matching the conditions, plus the newest few as a sample.
+
+    changes counts the matches the actions would change. A row already filed the way the rule
+    files it is a match but not a change.
+    """
     try:
         limit = int(limit)
     except (TypeError, ValueError):
@@ -230,7 +307,39 @@ def preview(conditions, limit=10):
     rows = [t for t in _rows(None) if match(conditions, t)]
     rows.sort(key=lambda t: (t.get("date") or "", t["transaction_id"]), reverse=True)
     keys = ("transaction_id", "date", "amount", "name", "merchant_name", "display_name", "cat_id")
-    return {"count": len(rows), "sample": [{k: t.get(k) for k in keys} for t in rows[:limit]]}
+    return {"count": len(rows), "changes": sum(1 for t in rows if _would_change(t, actions)),
+            "sample": [{k: t.get(k) for k in keys} for t in rows[:limit]]}
+
+
+def draft(transaction_id):
+    """A rule built from what the user set on one transaction, for the review window to start from.
+
+    Conditions: its name key and its direction. Actions: the category only if the user picked it,
+    the name it shows as, the tags the user added, and exclude if it is excluded.
+    Returns None when the transaction does not exist.
+    """
+    t = db.one("SELECT * FROM transactions WHERE transaction_id=?", (transaction_id,))
+    if not t:
+        return None
+    cond = {"merchant": name_key(t)}
+    if t["amount"]:
+        cond["direction"] = "out" if t["amount"] > 0 else "in"
+    act = {}
+    if t.get("cat_source") == "user" and t.get("cat_id"):
+        act["cat_id"] = t["cat_id"]
+    if (t.get("display_name") or "").strip():
+        act["display_name"] = t["display_name"].strip()
+    names = [r["name"] for r in db.q("""SELECT g.name FROM transaction_tags x JOIN tags g ON g.id=x.tag_id
+                                         WHERE x.transaction_id=? AND x.source='user' ORDER BY g.name COLLATE NOCASE""",
+                                      (transaction_id,))]
+    if names:
+        act["tags"] = names
+    if t.get("excluded"):
+        act["exclude"] = True
+    code = t.get("category_detail") or t.get("category")
+    found = categories.get(code) if code else None
+    return {"conditions": cond, "actions": act,
+            "bank_category": {"id": code, "name": found["name"] if found else categories.readable(code)} if code else None}
 
 
 def remember(transaction_id, cat_id):

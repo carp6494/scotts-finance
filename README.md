@@ -12,6 +12,10 @@ I built it for myself. You can run it too, but you need your own Plaid developer
 - Opens a drawer for any account with everything Plaid returns for it and all of its transactions
 - Transactions page with search and filters for account, category, and tag
 - Tags: label any transaction, by hand or with a rule
+- Create rule on any transaction: it starts from what you changed on that row, shows which past transactions match, and asks before it saves
+- A Rule badge on every row a rule changed: hover it to read the rule, click it to open that rule in Rules
+- Rules run top to bottom. Drag a rule by its grabber to change the order
+- Cash and ATM categories: ATM withdrawal, ATM fee, ATM deposit, and Mobile check deposit. These are never linked as transfers
 - New transactions wait in a box at the top of Transactions until you check them
 - Split a charge across categories, or mark part of it owed back by someone and link their payback
 - Transfers between your own accounts link on their own, so a card payment never counts as spending. An import skips rows the account already has.
@@ -19,6 +23,7 @@ I built it for myself. You can run it too, but you need your own Plaid developer
 - Finds where each purchase happened: the bank's address, a local business lookup, the zip or city center, or the company headquarters
 - Debt payoff page
 - Manual accounts, home value with linked mortgage, and CSV, OFX, or QFX import for anything Plaid cannot reach
+- Export from Settings: all transactions as CSV, a QuickBooks QBO or CSV file per account, and a year-end tax summary by category and tag
 - Sign-in with an authenticator app code
 - Daily backups, keeps the last 30
 - Light, dark, and system themes
@@ -84,6 +89,16 @@ Check the OAuth page in the Plaid dashboard under Settings, Compliance, US OAuth
 ## Import a bank file
 
 Open an account, click Import file from bank, and pick the file your bank exported. CSV, OFX, and QFX all work. For a CSV, the importer looks for date, description, and amount columns, or separate debit and credit columns. Tick the box if the CSV shows purchases as negative numbers. OFX and QFX files need no box. Importing the same file twice adds nothing.
+
+## Export
+
+Open Settings and find Export. Pick the dates at the top, then:
+
+- Click Download CSV next to All transactions for every account in one file. A split shows one row per line.
+- Pick an account and QBO or CSV next to QuickBooks file, then click Download. QBO is the Web Connect file. In QuickBooks Desktop, go to File, Utilities, Import, Web Connect Files. In QuickBooks Online, go to Transactions, Bank transactions, and choose Upload from file.
+- Pick a year next to Tax summary and click Download CSV. Tag tax items all year, like Medical or Charity, and each tag gets its own line.
+
+Every file writes money out as negative. Pending transactions are left out.
 
 ## Working on the code
 

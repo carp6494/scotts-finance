@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, money, fullDate, toast, txChanged } from '../api'
-import { useCategories, categoryLabel, flatCategories } from '../categories'
+import { useCategories, flatCategories } from '../categories'
 import CategoryPicker from './CategoryPicker'
 import Logo from './Logo'
 import { CatLabel } from './CatIcon'
 import PlaceLine from './PlaceLine'
 import TagPills from './TagPills'
 import SplitEditor, { SplitLines } from './SplitEditor'
+import RuleDialog from './RuleDialog'
+import RuleBadge from './RuleBadge'
 
 const PAGE = 100
 
@@ -24,6 +26,7 @@ export default function TxList({ accountId, catId, tagId, spot, merchant, start,
   const [cur, setCur] = useState(0)
   const [armed, setArmed] = useState(false)
   const [splitting, setSplitting] = useState(null)
+  const [ruleFor, setRuleFor] = useState(null) // the row the rule window is open for
   const box = useRef(null)
   const live = useRef({})
   const groups = useCategories()
@@ -113,6 +116,7 @@ export default function TxList({ accountId, catId, tagId, spot, merchant, start,
       if (!live.current.armed) return
       if (e.ctrlKey || e.metaKey || e.altKey) return
       if (el && (['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || el.isContentEditable)) return
+      if (el && el.closest && el.closest('[role="dialog"]')) return  // keys typed in the rule window are not review keys
       if (e.key === 'Escape') { setArmed(false); return }
       const { rows: list, cur: at, markReviewed: mark } = live.current
       if (!list.length) return
@@ -149,22 +153,9 @@ export default function TxList({ accountId, catId, tagId, spot, merchant, start,
     try { await fn(); txChanged({ reload: true }); onChanged && onChanged() } catch (e) { toast(e.message) } finally { setBusy(false) }
   }
 
-  const makeRule = async () => {
-    if (!suggestion) return
-    setBusy(true)
-    try {
-      const r = await api.addRule({
-        name: `${suggestion.shown} → ${categoryLabel(groups, suggestion.catId)}`,
-        conditions: { merchant: suggestion.merchant },
-        actions: { cat_id: suggestion.catId },
-        created_from: suggestion.id,
-        apply_past: true,
-      })
-      toast(`Rule saved. ${r.changed} past transaction${r.changed === 1 ? '' : 's'} updated.`)
-      setSuggestion(null)
-      txChanged({ reload: true })
-      onChanged && onChanged()
-    } catch (e) { toast(e.message) } finally { setBusy(false) }
+  const makeRule = () => {
+    const t = suggestion && rows.find((x) => x.transaction_id === suggestion.id)
+    if (t) { setRuleFor(t); setSuggestion(null) }
   }
 
   return (
@@ -211,7 +202,12 @@ export default function TxList({ accountId, catId, tagId, spot, merchant, start,
                   <span style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap' }}>
                     <CategoryPicker value={t.cat_id} compact={compact} onChange={(id) => setCategory(t, id)}
                       splitCount={t.splits?.length || 0} onSplit={t.pending || t.transfer ? undefined : () => setSplitting(t.transaction_id)} />
+                    {t.rules?.length ? <RuleBadge ids={t.rules} compact={compact} /> : null}
                     <TagPills t={t} compact={compact} onChange={(tags) => setTags(t, tags)} />
+                    <button type="button" className="press" onClick={(e) => { e.stopPropagation(); setRuleFor(t) }} title="Make a rule from this transaction"
+                      style={{ font: 'inherit', fontSize: compact ? 11 : 12, lineHeight: 1.4, color: 'var(--accent)', fontWeight: 600, background: 'transparent', border: '1px solid var(--accent)', borderRadius: 999, padding: '1px 9px', whiteSpace: 'nowrap' }}>
+                      + Create rule
+                    </button>
                     {showAccount && t.account_name ? <span>{t.account_name}{t.mask ? ' ' + t.mask : ''}</span> : null}
                   </span>
                   {compact
@@ -252,7 +248,7 @@ export default function TxList({ accountId, catId, tagId, spot, merchant, start,
                   </span>
                   <button type="button" onClick={makeRule} disabled={busy} className="press"
                     style={{ height: 30, padding: '0 12px', borderRadius: 8, border: 0, background: 'var(--accent)', color: '#fff', fontWeight: 600, fontSize: 12 }}>
-                    {busy ? 'Saving...' : 'Make rule'}
+                    Make rule
                   </button>
                   <button type="button" onClick={() => setSuggestion(null)} style={{ height: 30, padding: '0 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'transparent', color: 'var(--text2)', fontSize: 12 }}>Not now</button>
                 </div>
@@ -262,6 +258,7 @@ export default function TxList({ accountId, catId, tagId, spot, merchant, start,
         })}
         {!rows.length && !loading && <div style={{ padding: 16, fontSize: 14, color: 'var(--muted)' }}>{empty}</div>}
       </div>
+      {ruleFor && <RuleDialog t={ruleFor} onClose={() => setRuleFor(null)} onSaved={onChanged} />}
       {rows.length < total && (
         <button type="button" onClick={() => load(rows.length)} disabled={loading} className="press"
           style={{ marginTop: 10, width: '100%', height: 40, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--text)', fontSize: 13 }}>

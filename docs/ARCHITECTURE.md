@@ -19,11 +19,12 @@ Scott's Finance App\
     splits.py            splits and money owed back: lines, paybacks, suggestions
     transfers.py         money between own accounts: pairs, questions, unlink
     ofx.py               reads OFX and QFX bank files, SGML and XML
+    exports.py           transactions CSV, QuickBooks QBO and CSV, tax summary
     maintenance.py       daily backup + 7-year purge
   frontend\              React 19 + Vite 7 + Tailwind 4 + motion + react-plaid-link
     src\api.js           fetch wrappers for every endpoint, money/date/title helpers, 401 -> 'auth-required' event
     src\App.jsx          sign-in gate, header (theme, sync, connect), page switcher, reconnect banners, toasts
-    src\components\      Odometer, Logo, ConnectButton, TxList, AccountDrawer, Lock
+    src\components\      Odometer, Logo, ConnectButton, TxList, RuleDialog, AccountDrawer, Lock
     src\pages\           Dashboard, Transactions, Debt
     public\brand\        app-icon.png, discover-card.png
   assets\ticker-logos\   2,081 ticker PNGs + _symbols.json (bundled source, gitignored)
@@ -79,6 +80,9 @@ The DB runs in WAL mode. Migrations are additive `ALTER TABLE ... ADD COLUMN` st
 | POST / PUT / DELETE | /manual, /manual/{id} | home asset |
 | POST | /manual/account | manual account (e.g. Lowe's / Synchrony) |
 | PATCH | /manual/{id}/balance | manual balance/limit |
+| GET | /export/transactions.csv | start, end, account_id. One row per split line. Money out negative. Pending left out |
+| GET | /export/quickbooks/{id} | fmt=qbo or csv, start, end. QBO is OFX 1.02 Web Connect with INTU.BID. One row per transaction |
+| GET | /export/tax-summary.csv | year. Totals by category and by tag. Leaves out transfers, excluded rows, owed lines, and paybacks |
 | POST | /accounts/{id}/import | CSV, OFX, or QFX import. CSV ids are sha1(account,date,amount,desc,occurrence). OFX ids are sha1(account,FITID). Then skip rows the account has within 2 days, same amount |
 | PATCH | /accounts/{id}/terms | {apr, limit_amt, min_payment} overrides |
 | GET | /debts | debts for the payoff planner |
@@ -107,6 +111,10 @@ The DB runs in WAL mode. Migrations are additive `ALTER TABLE ... ADD COLUMN` st
 - **Map:** `pages/Map.jsx` loads one view on demand. `UsMap.jsx` (three.js, us-atlas) is the Outline style. `GlobeMap.jsx` (globe.gl, world-atlas) is the World heatmap. Both use bundled data only. `TileMap.jsx` (MapLibre GL JS) is the Satellite, Hybrid and Terrain styles, with a terrain height slider, elevation colors and 3D buildings. One bar is one business; `GET /api/map` returns one point per business per spot.
 - **Map squares:** `tiles.py` serves `GET /api/tiles/{source}/{z}/{x}/{y}` for `imagery`, `hybrid`, `dem` and `buildings`. It fetches from USGS, Terrain Tiles on AWS Open Data, or OpenFreeMap, saves the square under `data/tiles`, and serves it from disk after that. `GET / PUT /api/settings/map` holds the three switches. `DELETE /api/settings/map/saved` empties the folder.
 - **Tags:** `tags.py` stores them. A rule can add tags through `tag_ids` in its actions; `rules.apply_tags` runs after categorizing, covers rows the owner categorized by hand, and skips any tag the owner removed from that row.
+- **Create rule:** every row has a Create rule button. `GET /transactions/{id}/rule-draft` returns `rules.draft`: conditions are the name key and the direction, actions are what the user set on that row. The name key is Plaid's merchant name, or the bank text up to the first word with a number in it. `components/RuleDialog.jsx` lets the user edit both, previews with `POST /rules/preview`, which now returns `changes`, and asks before it saves. Rule conditions also take `direction`, which is in or out, and `bank_category`, the Plaid code the bank sent.
+- **Rule badge:** `GET /transactions` rows carry `rules`, the ids from `rules.made_by`. A category or tag set by a rule is stored as `rule:<id>` and is exact. A shown name, exclude, or transfer mark counts when the rule still matches and the row still carries that value. `components/RuleBadge.jsx` shows the rule text from `ruleText.js` on hover. A click fires `open-rule`, and the Rules page scrolls to the rule and runs the `rule-glow` animation.
+- **Rule order:** rules run by `priority`, then id. The page shows no number. A grabber on each row moves it by pointer drag or the arrow keys, then `POST /rules/order` with every id renumbers them 1 to n and re-runs the rules. A new rule without a priority goes last. An edit without one keeps its place.
+- **Cash and ATM:** a built-in group with ATM withdrawal and ATM fee as expenses, ATM deposit and Mobile check deposit as income. Plaid's ATM fee code lives there. `transfers._eligible` skips rows filed under it.
 - **Review queue:** a transaction waits while `reviewed` is 0 and it is not pending. `review.start` runs once and marks everything already stored as reviewed, except the newest five. A bank's first sync is marked reviewed. `components/NewTransactions.jsx` shows the queue at the top of the Transactions page. Its keys work after a click on a row. The sidebar count sits on Transactions. A `tx-changed` window event carries row changes so every `TxList` on the page stays in step.
 - **Splits:** lines live in `splits`; the bank row is untouched. Totals and the category filter read the `tx_lines` view. Category rules skip split rows. After a sync, `splits.prune` drops lines of deleted rows and `splits.check` sends rows whose amount changed back to review. Owed lines name a person; `paybacks` link deposits or cash. A linked deposit does not count as income. `components/SplitEditor.jsx` opens from "Split" in the category picker. `components/OwedBox.jsx` sits on Transactions below the new box and is always shown.
 - **Transfers:** `transfers.detect` links a row where money left one account to the row where the same amount arrived on another, at most 3 days apart, when neither has another candidate. It runs at startup, after a sync, and after an import. A link sets `is_transfer` and swaps a category the app picked for a transfer one. The categorizer skips linked rows. Unlink remembers the pair in `transfer_dismissed`. A row in a dismissed pair is never linked on its own again. Unclear rows show their candidates under the row with "Link" and "Not a transfer".

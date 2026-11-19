@@ -34,6 +34,7 @@ import tags  # noqa: E402
 import splits  # noqa: E402
 import transfers  # noqa: E402
 import ofx  # noqa: E402
+import exports  # noqa: E402
 import tiles  # noqa: E402
 from fastapi import Request, Response  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
@@ -517,6 +518,42 @@ def _store_imported(account_id, out):
     return {"read": len(out), "added": after - before, "duplicates": len(out) - (after - before)}
 
 
+def _download(text, filename, media):
+    """Send a file the browser saves. no-store keeps it out of the browser cache."""
+    return Response(content=text.encode("utf-8"), media_type=media,
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"})
+
+
+def _file_part(s):
+    return "".join(ch if ch.isalnum() else "-" for ch in (s or "")).strip("-").lower()[:40] or "account"
+
+
+@app.get("/api/export/transactions.csv")
+def export_transactions(start: str | None = None, end: str | None = None, account_id: str | None = None):
+    span = "-".join(x for x in (start, end) if x) or "all"
+    return _download(exports.transactions_csv(start, end, account_id), f"transactions-{span}.csv", "text/csv")
+
+
+@app.get("/api/export/quickbooks/{account_id}")
+def export_quickbooks(account_id: str, fmt: str = "qbo", start: str | None = None, end: str | None = None):
+    a = db.one("SELECT name FROM accounts WHERE account_id=?", (account_id,))
+    if not a:
+        raise HTTPException(404, "Account not found")
+    name = f"quickbooks-{_file_part(a['name'])}"
+    if fmt == "csv":
+        return _download(exports.quickbooks_csv(account_id, start, end), name + ".csv", "text/csv")
+    if fmt == "qbo":
+        return _download(exports.qbo(account_id, start, end), name + ".qbo", "application/vnd.intu.qbo")
+    raise HTTPException(400, "fmt must be csv or qbo")
+
+
+@app.get("/api/export/tax-summary.csv")
+def export_tax_summary(year: int):
+    if not 1900 <= year <= 2999:
+        raise HTTPException(400, "Pick a year")
+    return _download(exports.tax_summary_csv(year), f"tax-summary-{year}.csv", "text/csv")
+
+
 class TermsReq(BaseModel):
     apr: float | None = None
     limit_amt: float | None = None
@@ -673,7 +710,9 @@ def transactions(account_id: str | None = None, q: str | None = None, cat_id: st
     ids = [r["transaction_id"] for r in rows]
     split_lines, paid_by = splits.for_transactions(ids), splits.payback_names(ids)
     moved = transfers.for_transactions(ids)
+    by_rule = rules.made_by(rows)
     for r in rows:
+        r["rules"] = by_rule.get(r["transaction_id"], [])
         r["tags"] = tagged.get(r["transaction_id"], [])
         r["splits"] = split_lines.get(r["transaction_id"], [])
         r["split_off"] = splits.off_by(r["amount"], r["splits"])
@@ -733,6 +772,7 @@ def patch_transaction(transaction_id: str, req: TxPatch):
                     FROM transactions t LEFT JOIN categories c ON c.id=t.cat_id WHERE t.transaction_id=?""", (transaction_id,))
     row["similar"] = similar
     row["place_line"] = places.line(row)
+    row["rules"] = rules.made_by([db.one("SELECT * FROM transactions WHERE transaction_id=?", (transaction_id,))]).get(transaction_id, [])
     return row
 
 
@@ -915,7 +955,7 @@ def dismiss_transfer(transaction_id: str):
 
 class RuleReq(BaseModel):
     name: str
-    priority: int = 100
+    priority: int | None = None  # None: a new rule goes last, an edited rule keeps its place
     enabled: bool = True
     conditions: dict = {}
     actions: dict = {}
@@ -928,7 +968,7 @@ class PreviewReq(BaseModel):
     actions: dict = {}
 
 
-COND_KEYS = {"merchant", "text", "amount_min", "amount_max", "account_id", "day_min", "day_max"}
+COND_KEYS = {"merchant", "text", "amount_min", "amount_max", "account_id", "day_min", "day_max", "direction", "bank_category"}
 ACT_KEYS = {"cat_id", "display_name", "exclude", "transfer", "tags"}
 
 
@@ -950,7 +990,7 @@ def _clean_rule(conditions: dict, actions: dict, need_actions: bool = True):
             raise HTTPException(400, str(e))
         if ids:
             a["tag_ids"] = list(dict.fromkeys(ids))
-    for k in ("merchant", "text", "account_id"):
+    for k in ("merchant", "text", "account_id", "bank_category"):
         if k in c:
             c[k] = str(c[k]).strip()
             if not c[k]:
@@ -979,6 +1019,8 @@ def _clean_rule(conditions: dict, actions: dict, need_actions: bool = True):
                 raise HTTPException(400, f"{k} must be a whole number")
             if not 1 <= c[k] <= 31:
                 raise HTTPException(400, "Day of month must be between 1 and 31")
+    if "direction" in c and c["direction"] not in ("in", "out"):
+        raise HTTPException(400, "Direction must be in or out")
     if "amount_min" in c and "amount_max" in c and c["amount_min"] > c["amount_max"]:
         raise HTTPException(400, "Minimum amount is above the maximum")
     if "day_min" in c and "day_max" in c and c["day_min"] > c["day_max"]:
@@ -1010,8 +1052,17 @@ def list_rules():
 
 @app.post("/api/rules/preview")
 def preview_rule(req: PreviewReq):
-    c, _ = _clean_rule(req.conditions, req.actions, need_actions=False)
-    return rules.preview(c)
+    # Only the conditions are cleaned here. Cleaning the actions would create tags for a rule not yet saved.
+    c, _ = _clean_rule(req.conditions, {}, need_actions=False)
+    return rules.preview(c, actions={k: v for k, v in (req.actions or {}).items() if k in ACT_KEYS})
+
+
+@app.get("/api/transactions/{transaction_id}/rule-draft")
+def rule_draft(transaction_id: str):
+    d = rules.draft(transaction_id)
+    if d is None:
+        raise HTTPException(404, "Transaction not found")
+    return d
 
 
 @app.post("/api/rules/apply")
@@ -1029,8 +1080,9 @@ def _rule_input(req: RuleReq):
 @app.post("/api/rules")
 def add_rule(req: RuleReq):
     name, c, a = _rule_input(req)
+    priority = req.priority if req.priority is not None else db.one("SELECT COALESCE(MAX(priority), 0) + 1 AS p FROM rules")["p"]
     cur = db.run("INSERT INTO rules (name, priority, enabled, conditions, actions, created_from) VALUES (?,?,?,?,?,?)",
-                 (name, req.priority, 1 if req.enabled else 0, json.dumps(c), json.dumps(a), req.created_from))
+                 (name, priority, 1 if req.enabled else 0, json.dumps(c), json.dumps(a), req.created_from))
     rid = cur.lastrowid
     changed = rules.categorize() if req.apply_past else 0
     return {**_rule_out(db.one("SELECT * FROM rules WHERE id=?", (rid,))), "changed": changed}
@@ -1041,10 +1093,24 @@ def update_rule(rule_id: int, req: RuleReq):
     if not db.one("SELECT 1 FROM rules WHERE id=?", (rule_id,)):
         raise HTTPException(404, "Rule not found")
     name, c, a = _rule_input(req)
-    db.run("UPDATE rules SET name=?, priority=?, enabled=?, conditions=?, actions=? WHERE id=?",
+    db.run("UPDATE rules SET name=?, priority=COALESCE(?, priority), enabled=?, conditions=?, actions=? WHERE id=?",
            (name, req.priority, 1 if req.enabled else 0, json.dumps(c), json.dumps(a), rule_id))
     changed = rules.categorize() if req.apply_past else 0
     return {**_rule_out(db.one("SELECT * FROM rules WHERE id=?", (rule_id,))), "changed": changed}
+
+
+class RuleOrder(BaseModel):
+    ids: list[int]
+
+
+@app.post("/api/rules/order")
+def order_rules(req: RuleOrder):
+    """Set the run order from a full list of rule ids, first runs first, then re-run the rules."""
+    have = {r["id"] for r in db.q("SELECT id FROM rules")}
+    if len(req.ids) != len(set(req.ids)) or set(req.ids) != have:
+        raise HTTPException(400, "The list must name every rule once")
+    db.many("UPDATE rules SET priority=? WHERE id=?", [(i + 1, rid) for i, rid in enumerate(req.ids)])
+    return {"changed": rules.categorize()}
 
 
 @app.delete("/api/rules/{rule_id}")
@@ -1171,7 +1237,9 @@ if DIST.exists():
         f = DIST / path
         if path and f.is_file():
             return FileResponse(f)
-        return FileResponse(DIST / "index.html")
+        # no-cache makes Chrome ask for the page every time, so a new build shows on the next reload.
+        # The script files it names change name with every build, so those can stay cached.
+        return FileResponse(DIST / "index.html", headers={"Cache-Control": "no-cache"})
 
 
 # ---------- background sync every 6 hours ----------
